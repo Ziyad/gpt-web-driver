@@ -38,13 +38,13 @@ async def human_type(text):
 async def main_loop():
     await ensure_profile()
     
-    # Launch HEADED. Headless is a massive flag for Cloudflare.
+    # Launch HEADED.
     browser = await uc.start(
         user_data_dir=SHIM_PROFILE,
         headless=False 
     )
     
-    page = await browser.get("https://chatgpt.com")
+    page = await browser.get("https://localhost:6767")
     
     # Wait for the "Stop Generating" button to ensure readiness (passive check)
     await page.wait_for_selector("textarea[id='prompt-textarea']", timeout=20)
@@ -89,8 +89,8 @@ import nodriver as uc
 
 async def stealth_init(page):
     """
-    Applies protocol hardening to silence 'chatty' CDP domains 
-    that cause V8 serialization latency.
+    Applies protocol hardening to silence 'noisy' CDP domains 
+    that cause V8 serialization lag.
     """
     try:
         # 1. Disable Reporting Domains
@@ -184,7 +184,7 @@ async def main():
     browser = await uc.start(headless=False)
     browser.main_tab.maximize() # Standardize coordinates
     
-    page = await browser.get("https://chatgpt.com")
+    page = await browser.get("http://localhost:6767")
     await stealth_init(page) # Apply hardening
 
     # Wait safely using DOM domain
