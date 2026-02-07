@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spec2-hybrid"
+version = "0.1.0"
+description = "Hybrid browser automation: nodriver for passive DOM reads + PyAutoGUI for OS-level input."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "nodriver",
+  "pyautogui",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+]
+
+[project.scripts]
+spec2-hybrid = "spec2_hybrid.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
