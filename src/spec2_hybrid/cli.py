@@ -18,7 +18,7 @@ def _path_or_none(s: Optional[str]) -> Optional[Path]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="spec2-hybrid")
+    p = argparse.ArgumentParser(prog="gpt-web-driver")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add_common(sp: argparse.ArgumentParser) -> None:
@@ -53,13 +53,13 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument(
             "--browser-cache-dir",
             default=None,
-            help="Override browser cache directory (defaults to XDG_CACHE_HOME/spec2-hybrid or ~/.cache/spec2-hybrid).",
+            help="Override browser cache directory (defaults to XDG_CACHE_HOME/gpt-web-driver or ~/.cache/gpt-web-driver).",
         )
         sp.add_argument(
             "--cdp-host",
             default=None,
             help="Connect to an existing Chrome instance via CDP (host). Requires --cdp-port. "
-            "When set, spec2-hybrid will not launch a local browser.",
+            "When set, gpt-web-driver will not launch a local browser.",
         )
         sp.add_argument(
             "--cdp-port",

@@ -94,6 +94,5 @@ if ($Dev) {
   python -m pip install -e .
 }
 
-Write-Host "Ready. Try: spec2-hybrid demo --dry-run   (or --no-dry-run)" -ForegroundColor Green
+Write-Host "Ready. Try: gpt-web-driver demo --dry-run   (or --no-dry-run)" -ForegroundColor Green
 Write-Host "Run tests: python -m pytest" -ForegroundColor Green
-

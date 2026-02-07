@@ -8,7 +8,7 @@ from spec2_hybrid.demo_server import serve_directory
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Serve the local spec2-hybrid test webapp.")
+    ap = argparse.ArgumentParser(description="Serve the local gpt-web-driver test webapp.")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=0, help="0 chooses an ephemeral port")
     args = ap.parse_args()
@@ -34,4 +34,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

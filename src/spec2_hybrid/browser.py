@@ -34,7 +34,7 @@ def default_browser_channel(env: Mapping[str, str] = os.environ) -> str:
 
 def default_download_browser(env: Mapping[str, str] = os.environ) -> bool:
     """
-    Whether `spec2-hybrid` should auto-download a browser when none is found.
+    Whether `gpt-web-driver` should auto-download a browser when none is found.
     """
     override = env.get("SPEC2_BROWSER_DOWNLOAD")
     if override is None:
@@ -91,9 +91,9 @@ def default_browser_cache_dir(env: Mapping[str, str] = os.environ) -> Path:
 
     xdg = (env.get("XDG_CACHE_HOME") or "").strip()
     if xdg:
-        return Path(xdg).expanduser() / "spec2-hybrid"
+        return Path(xdg).expanduser() / "gpt-web-driver"
 
-    return Path.home() / ".cache" / "spec2-hybrid"
+    return Path.home() / ".cache" / "gpt-web-driver"
 
 
 def _cft_platform_key(sys_platform: str, machine: str) -> str:
@@ -190,7 +190,7 @@ def _read_installed_browser(meta_path: Path) -> Optional[InstalledBrowser]:
 
 
 def _fetch_json(url: str) -> dict:
-    req = urllib.request.Request(url, headers={"User-Agent": "spec2-hybrid"})
+    req = urllib.request.Request(url, headers={"User-Agent": "gpt-web-driver"})
     with urllib.request.urlopen(req, timeout=60) as resp:
         raw = resp.read()
     return json.loads(raw.decode("utf-8"))
@@ -198,7 +198,7 @@ def _fetch_json(url: str) -> dict:
 
 def _download_file(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    req = urllib.request.Request(url, headers={"User-Agent": "spec2-hybrid"})
+    req = urllib.request.Request(url, headers={"User-Agent": "gpt-web-driver"})
     with urllib.request.urlopen(req, timeout=300) as resp, dest.open("wb") as f:
         shutil.copyfileobj(resp, f)
 

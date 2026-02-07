@@ -1,4 +1,4 @@
-# spec2-hybrid
+# gpt-web-driver
 
 Hybrid browser automation that splits the world into:
 
@@ -9,7 +9,7 @@ This is intentionally "headed" automation. If you are running without a GUI (CI,
 
 ## How It Works
 
-At a high level, `spec2-hybrid` runs a single flow:
+At a high level, `gpt-web-driver` runs a single flow:
 
 1. Start a Chromium browser via `nodriver` (or connect via CDP).
 2. Navigate to a URL.
@@ -22,7 +22,7 @@ At a high level, `spec2-hybrid` runs a single flow:
 
 ### CDP Hardening ("Stealth")
 
-After navigation, `spec2-hybrid` best-effort disables noisy domains:
+After navigation, `gpt-web-driver` best-effort disables noisy domains:
 
 - `Runtime`
 - `Log`
@@ -33,12 +33,12 @@ This is intended to reduce overhead and avoid some anti-debugger tricks. The imp
 ## Requirements
 
 - Python 3.12+ (see `pyproject.toml`)
-- A Chromium-based browser available for `nodriver` to launch (or allow `spec2-hybrid` to auto-download one)
+- A Chromium-based browser available for `nodriver` to launch (or allow `gpt-web-driver` to auto-download one)
 - A real GUI session if you plan to do OS-level input (`--no-dry-run`)
 
 ## Install
 
-If you want real OS-level input (`--no-dry-run`), run `spec2-hybrid` on the same OS session as the browser. For most people on a Windows machine, that means: run it directly on Windows (not WSL).
+If you want real OS-level input (`--no-dry-run`), run `gpt-web-driver` on the same OS session as the browser. For most people on a Windows machine, that means: run it directly on Windows (not WSL).
 
 ### Windows (Recommended)
 
@@ -84,7 +84,7 @@ python -m pip install -e .
 Show help:
 
 ```bash
-spec2-hybrid --help
+gpt-web-driver --help
 # or
 python -m spec2_hybrid --help
 ```
@@ -102,19 +102,19 @@ Terminal 1 (serve the page; fixed port makes commands repeatable):
 Terminal 2 (real OS input):
 
 ```powershell
-spec2-hybrid run --url "http://127.0.0.1:6767/index.html" --selector "#fname" --text "Hello" --no-dry-run
+gpt-web-driver run --url "http://127.0.0.1:6767/index.html" --selector "#fname" --text "Hello" --no-dry-run
 ```
 
 Dry-run (safe; prints intended actions without moving the mouse):
 
 ```powershell
-spec2-hybrid run --url "http://127.0.0.1:6767/index.html" --selector "#fname" --text "Hello" --dry-run
+gpt-web-driver run --url "http://127.0.0.1:6767/index.html" --selector "#fname" --text "Hello" --dry-run
 ```
 
 Run the local demo (serves `sample-body.html` over HTTP and runs a single browser session):
 
 ```bash
-spec2-hybrid demo --dry-run
+gpt-web-driver demo --dry-run
 ```
 
 ### Use A Windows Host Browser From WSL (CDP)
@@ -126,21 +126,21 @@ If you want to avoid running a Linux browser inside WSL, you can connect to a de
 ```powershell
 & "$env:ProgramFiles\\Google\\Chrome\\Application\\chrome.exe" `
   --remote-debugging-port=9222 `
-  --user-data-dir="$env:TEMP\\spec2-hybrid-cdp"
+  --user-data-dir="$env:TEMP\\gpt-web-driver-cdp"
 ```
 
 2) From WSL, connect to it:
 
 ```bash
-spec2-hybrid demo --dry-run --cdp-host 127.0.0.1 --cdp-port 9222
+gpt-web-driver demo --dry-run --cdp-host 127.0.0.1 --cdp-port 9222
 ```
 
-Note: OS-level input from WSL cannot control Windows mouse/keyboard. This mode is therefore most useful with `--dry-run` (DOM reads + printed intended actions). For real OS input on Windows, run `spec2-hybrid` with a Windows Python install.
+Note: OS-level input from WSL cannot control Windows mouse/keyboard. This mode is therefore most useful with `--dry-run` (DOM reads + printed intended actions). For real OS input on Windows, run `gpt-web-driver` with a Windows Python install.
 
 Run against an arbitrary URL/selector:
 
 ```bash
-spec2-hybrid run --url http://127.0.0.1:6767 --selector "#prompt-textarea" --text "Hello" --dry-run
+gpt-web-driver run --url http://127.0.0.1:6767 --selector "#prompt-textarea" --text "Hello" --dry-run
 ```
 
 Note: `demo` is meant to be run from a repo checkout (it serves `sample-body.html` from the repo).
@@ -154,7 +154,7 @@ You can also override the default with `SPEC2_DRY_RUN=1`.
 
 ### Browser selection / auto-download
 
-If no system Chrome/Chromium is found, `spec2-hybrid` can automatically download **Chrome for Testing**
+If no system Chrome/Chromium is found, `gpt-web-driver` can automatically download **Chrome for Testing**
 into your cache directory and launch it via `nodriver`.
 
 - `--browser-path /path/to/chrome` (or `SPEC2_BROWSER_PATH=/path/to/chrome`): use an explicit browser.
