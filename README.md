@@ -1,12 +1,34 @@
 # spec2-hybrid
 
-Hybrid browser automation prototype per `spec2.md`:
+Hybrid browser automation that splits the world into:
 
-- `nodriver` is used only for passive DOM reads (finding nodes, waiting for selectors, reading geometry).
-- All user interaction is performed via OS-level input (`pyautogui`) to generate trusted OS events.
-- CDP hardening disables `Runtime`, `Log`, and `Debugger` domains as early as possible.
+- **Read (CDP):** use `nodriver` to launch/connect to Chrome and *passively* read DOM state/geometry.
+- **Write (OS):** use **OS-level** input (`pyautogui`) for mouse + keyboard so the page sees trusted input events.
 
 This is intentionally "headed" automation. If you are running without a GUI (CI, containers, plain WSL without WSLg), use `--dry-run`.
+
+## How It Works
+
+At a high level, `spec2-hybrid` runs a single flow:
+
+1. Start a Chromium browser via `nodriver` (or connect via CDP).
+2. Navigate to a URL.
+3. Wait for a CSS selector to exist (CDP DOM polling; avoids driver flakiness).
+4. Compute a viewport point for the element:
+   - Prefer element handle helpers when present (`bounding_box` / `quads`).
+   - Fall back to CDP `DOM.getBoxModel` (+ `Page.getLayoutMetrics` for scroll offsets).
+5. Convert viewport coords to screen coords using `--offset-x/--offset-y`, inject optional noise, then:
+6. Move the real mouse + click + type using `pyautogui` (unless `--dry-run`).
+
+### CDP Hardening ("Stealth")
+
+After navigation, `spec2-hybrid` best-effort disables noisy domains:
+
+- `Runtime`
+- `Log`
+- `Debugger`
+
+This is intended to reduce overhead and avoid some anti-debugger tricks. The implementation lives in `src/spec2_hybrid/stealth.py`.
 
 ## Requirements
 
@@ -23,7 +45,7 @@ If you want real OS-level input (`--no-dry-run`), run `spec2-hybrid` on the same
 Create a virtualenv and install the package (PowerShell):
 
 ```powershell
-py -3.12 -m venv .venv
+py -3.12 -m venv .venv   # (or 3.13+)
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
 python -m pip install -e ".[dev]"
@@ -32,7 +54,7 @@ python -m pip install -e ".[dev]"
 Or use the helper script:
 
 ```powershell
-.\scripts\windows\bootstrap.ps1
+.\scripts\windows\bootstrap.ps1 -PyVersion 3.13
 ```
 
 If PowerShell blocks activation scripts, either:
@@ -65,6 +87,28 @@ Show help:
 spec2-hybrid --help
 # or
 python -m spec2_hybrid --help
+```
+
+## Quickstart: Local Deterministic Test Page
+
+This repo includes a tiny local test app (`webapp/`) with a stable input field `#fname`.
+
+Terminal 1 (serve the page; fixed port makes commands repeatable):
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\serve_test_app.py --host 127.0.0.1 --port 6767
+```
+
+Terminal 2 (real OS input):
+
+```powershell
+spec2-hybrid run --url "http://127.0.0.1:6767/index.html" --selector "#fname" --text "Hello" --no-dry-run
+```
+
+Dry-run (safe; prints intended actions without moving the mouse):
+
+```powershell
+spec2-hybrid run --url "http://127.0.0.1:6767/index.html" --selector "#fname" --text "Hello" --dry-run
 ```
 
 Run the local demo (serves `sample-body.html` over HTTP and runs a single browser session):
@@ -127,6 +171,14 @@ Viewport coordinates returned by CDP are translated to screen coordinates by add
 - `--offset-y`
 
 Defaults are conservative and typically require manual tuning, depending on OS theme, window decorations, DPI scaling, and monitor layout.
+
+Other knobs:
+
+- `--timeout` (seconds): wait budget for the selector to exist
+- `--noise-x/--noise-y`: random jitter (pixels) applied to the final screen coordinate
+- `--move-min/--move-max`: mouse move duration range (seconds)
+- `--type-min/--type-max`: per-character typing delay range (seconds)
+- `--no-enter`: do not press Enter after typing
 
 ### Profile shim (optional)
 
