@@ -1,0 +1,191 @@
+:root {
+  --bg: #0b1020;
+  --panel: rgba(255, 255, 255, 0.07);
+  --panel2: rgba(255, 255, 255, 0.09);
+  --text: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.7);
+  --hair: rgba(255, 255, 255, 0.12);
+  --accent: #73f5b7;
+  --accent2: #5aa5ff;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial,
+    "Noto Sans", "Liberation Sans", sans-serif;
+  color: var(--text);
+  background: radial-gradient(1200px 600px at 20% 10%, rgba(115, 245, 183, 0.18), transparent 65%),
+    radial-gradient(900px 500px at 90% 20%, rgba(90, 165, 255, 0.18), transparent 60%),
+    radial-gradient(1000px 700px at 60% 95%, rgba(255, 125, 200, 0.12), transparent 70%),
+    var(--bg);
+}
+
+.app {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--hair);
+  background: linear-gradient(to bottom, rgba(11, 16, 32, 0.92), rgba(11, 16, 32, 0.72));
+  backdrop-filter: blur(10px);
+}
+
+.brand {
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 13px;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--hair);
+  padding: 2px 6px;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.card {
+  width: min(720px, calc(100% - 32px));
+  margin: 48px auto;
+  padding: 28px 22px;
+  background: linear-gradient(180deg, var(--panel), var(--panel2));
+  border: 1px solid var(--hair);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+h1 {
+  margin: 0 0 8px 0;
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.sub {
+  margin: 0 0 18px 0;
+  color: var(--muted);
+}
+
+label {
+  display: block;
+  margin: 14px 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+input[type="text"] {
+  width: 100%;
+  font-size: 18px;
+  padding: 14px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--hair);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  outline: none;
+}
+
+input[type="text"]:focus {
+  border-color: rgba(115, 245, 183, 0.55);
+  box-shadow: 0 0 0 3px rgba(115, 245, 183, 0.16);
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+button {
+  appearance: none;
+  border: 1px solid var(--hair);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+#submit {
+  border-color: rgba(115, 245, 183, 0.32);
+  background: linear-gradient(180deg, rgba(115, 245, 183, 0.18), rgba(115, 245, 183, 0.07));
+}
+
+.status {
+  margin-top: 18px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--hair);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.status-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.k {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.v {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+}
+
+.footer {
+  padding: 14px 18px 18px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (max-width: 520px) {
+  .card {
+    margin: 22px auto;
+    padding: 20px 16px;
+  }
+  h1 {
+    font-size: 22px;
+  }
+  input[type="text"] {
+    font-size: 16px;
+  }
+  .status-row {
+    grid-template-columns: 78px 1fr;
+  }
+}
+

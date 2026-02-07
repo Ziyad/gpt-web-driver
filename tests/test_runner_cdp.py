@@ -70,6 +70,22 @@ def test_runner_uses_cdp_host_port(monkeypatch):
     assert calls == [{"host": "127.0.0.1", "port": 9222}]
 
 
+def test_runner_close_does_not_crash_when_browser_has_sync_stop(monkeypatch):
+    # Regression test: FlowRunner.close() should tolerate a nodriver-like sync stop().
+    class _B:
+        def __init__(self):
+            self.stopped = False
+
+        def stop(self):
+            self.stopped = True
+
+    cfg = _base_config(dry_run=True)
+    r = FlowRunner(cfg)
+    r._browser = _B()
+    asyncio.run(r.close())
+    assert r._browser is None
+
+
 def test_runner_dry_run_no_display_goes_headless(monkeypatch):
     calls = []
 

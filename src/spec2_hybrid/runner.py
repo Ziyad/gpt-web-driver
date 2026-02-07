@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import sys
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from .nodriver_dom import (
     maybe_bring_to_front,
     maybe_maximize,
     select,
+    selector_viewport_center,
     wait_for_selector,
 )
 from .os_input import MouseProfile, OsInput, TypingProfile
@@ -122,18 +124,62 @@ class FlowRunner:
             kwargs["sandbox"] = bool(self._cfg.sandbox)
 
         self._browser = await uc.start(**kwargs)
-        maybe_maximize(self._browser)
+        await maybe_maximize(self._browser)
 
     async def close(self) -> None:
         if self._browser is None:
             return
-        try:
-            await self._browser.stop()
-        except Exception:
-            try:
-                self._browser.stop()
-            except Exception:
-                pass
+        b = self._browser
+
+        # nodriver's Browser.stop() is synchronous and does not await process transport cleanup.
+        # On Windows this can lead to noisy "unclosed transport" ResourceWarnings at interpreter exit.
+        proc = getattr(b, "_process", None)
+        conn = getattr(b, "connection", None)
+
+        with contextlib.suppress(Exception):
+            stop = getattr(b, "stop", None)
+            if callable(stop):
+                stop()
+
+        # Ensure websocket listener task is cancelled and socket closed.
+        with contextlib.suppress(Exception):
+            disc = getattr(conn, "disconnect", None)
+            if callable(disc):
+                await asyncio.wait_for(disc(), timeout=2.0)
+
+        # Best-effort cleanup for the spawned browser subprocess transport.
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                if getattr(proc, "returncode", None) is None:
+                    proc.terminate()
+
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(proc.wait(), timeout=2.0)
+
+            # If still running, escalate.
+            if getattr(proc, "returncode", None) is None:
+                with contextlib.suppress(Exception):
+                    proc.kill()
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(proc.wait(), timeout=2.0)
+
+            # Close stdin writer if present.
+            with contextlib.suppress(Exception):
+                if proc.stdin is not None:
+                    proc.stdin.close()
+                    with contextlib.suppress(Exception):
+                        await proc.stdin.wait_closed()
+
+            # Close underlying transport to avoid ResourceWarnings at GC time.
+            with contextlib.suppress(Exception):
+                transport = getattr(proc, "_transport", None)
+                if transport is not None:
+                    transport.close()
+
+        # Let any pending disconnect callbacks flush before loop teardown.
+        with contextlib.suppress(Exception):
+            await asyncio.sleep(0)
+
         self._browser = None
         self._page = None
 
@@ -146,10 +192,21 @@ class FlowRunner:
     async def locate_point(self, selector: str) -> ViewportPoint:
         assert self._page is not None
         await wait_for_selector(self._page, selector, timeout_s=self._cfg.timeout_s)
-        el = await select(self._page, selector)
+        try:
+            el = await select(self._page, selector)
+        except Exception:
+            # Some driver versions have flaky element-handle selection; fall back to CDP.
+            return await selector_viewport_center(self._page, selector)
+
         if not el:
-            raise RuntimeError(f"Element not found for selector: {selector}")
-        return await element_viewport_center(el)
+            # Last resort: try CDP directly (wait_for_selector should have ensured presence,
+            # but driver APIs can still return None depending on implementation).
+            return await selector_viewport_center(self._page, selector)
+
+        try:
+            return await element_viewport_center(el)
+        except Exception:
+            return await selector_viewport_center(self._page, selector)
 
     async def interact(self, *, selector: str, text: Optional[str]) -> None:
         assert self._browser is not None
@@ -160,7 +217,7 @@ class FlowRunner:
         sx, sy = viewport_to_screen(pt.x, pt.y, offset_x=self._cfg.offset_x, offset_y=self._cfg.offset_y)
         fx, fy = apply_noise(sx, sy, noise=self._cfg.noise)
 
-        maybe_bring_to_front(self._browser)
+        await maybe_bring_to_front(self._browser)
         self._os.move_to(fx, fy, profile=self._cfg.mouse)
         self._os.click()
 

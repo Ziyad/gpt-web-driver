@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>spec2-hybrid test page</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">spec2-hybrid</div>
+        <div class="hint">
+          Target selector:
+          <code>#fname</code>
+          or
+          <code>#test-input</code>
+        </div>
+      </header>
+
+      <main class="card">
+        <h1>Automation Test Form</h1>
+        <p class="sub">
+          This page is designed to be stable and easy to target with browser automation.
+        </p>
+
+        <form id="form">
+          <label for="fname">First name</label>
+          <!-- Keep id=fname so your existing command works -->
+          <input
+            id="fname"
+            name="fname"
+            type="text"
+            inputmode="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Type here..."
+            autofocus
+            data-testid="test-input"
+          />
+
+          <div class="row">
+            <button id="submit" type="submit">Submit</button>
+            <button id="clear" type="button">Clear</button>
+          </div>
+        </form>
+
+        <section class="status">
+          <div class="status-row">
+            <div class="k">Focused:</div>
+            <div class="v" id="focused">no</div>
+          </div>
+          <div class="status-row">
+            <div class="k">Value:</div>
+            <div class="v mono" id="value">(empty)</div>
+          </div>
+          <div class="status-row">
+            <div class="k">Submitted:</div>
+            <div class="v mono" id="submitted">(none)</div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div>
+          Tip: if clicks land wrong, tune <code>--offset-x</code>/<code>--offset-y</code>.
+        </div>
+      </footer>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+
