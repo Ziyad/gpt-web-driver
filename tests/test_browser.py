@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -93,16 +94,20 @@ def test_resolve_uses_installed_metadata(tmp_path: Path):
     platform_key = _cft_platform_key(__import__("sys").platform, __import__("platform").machine())
     meta = tmp_path / "chrome-for-testing" / "stable" / platform_key / "installed.json"
     meta.parent.mkdir(parents=True, exist_ok=True)
+    # Use proper JSON escaping for Windows paths (backslashes).
     meta.write_text(
-        (
-            "{\n"
-            '  "version": "0",\n'
-            '  "channel": "stable",\n'
-            f'  "platform": "{platform_key}",\n'
-            f'  "executable_path": "{exe}",\n'
-            '  "url": ""\n'
-            "}\n"
-        ),
+        json.dumps(
+            {
+                "version": "0",
+                "channel": "stable",
+                "platform": platform_key,
+                "executable_path": str(exe),
+                "url": "",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
         encoding="utf-8",
     )
 

@@ -5,7 +5,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from .browser import resolve_browser_executable_path
 from .demo_server import serve_directory
@@ -21,6 +21,23 @@ from .nodriver_dom import (
 from .os_input import MouseProfile, OsInput, TypingProfile
 from .profile import ProfileConfig, ensure_profile
 from .stealth import stealth_init
+
+
+def _no_gui_display(env: Mapping[str, str] = os.environ, *, sys_platform: str = sys.platform) -> bool:
+    """
+    Best-effort detection of "no GUI display available".
+
+    - Linux: use DISPLAY/WAYLAND_DISPLAY (common for X11/Wayland).
+    - Non-Linux: do not assume these vars exist; only honor them if explicitly present.
+      This lets tests force a "no display" condition on Windows/macOS without breaking
+      normal GUI sessions where DISPLAY is typically unset.
+    """
+    display_keys_present = ("DISPLAY" in env) or ("WAYLAND_DISPLAY" in env)
+
+    if sys_platform.startswith("linux") or display_keys_present:
+        return (env.get("DISPLAY") in (None, "")) and (env.get("WAYLAND_DISPLAY") in (None, ""))
+
+    return False
 
 
 @dataclass(frozen=True)
@@ -67,6 +84,8 @@ class FlowRunner:
         if self._browser is not None:
             return
 
+        no_display = _no_gui_display()
+
         if self._cfg.real_profile and self._cfg.shim_profile:
             ensure_profile(
                 ProfileConfig(
@@ -75,27 +94,20 @@ class FlowRunner:
                 )
             )
 
-        import nodriver as uc  # local import: unit tests run without nodriver installed
-
-        no_linux_display = False
-        if sys.platform.startswith("linux"):
-            no_linux_display = (os.environ.get("DISPLAY") in (None, "")) and (
-                os.environ.get("WAYLAND_DISPLAY") in (None, "")
-            )
-
         # This project is "headed" by design when doing OS-level input, but in plain
         # WSL (no WSLg/X11) we still want `--dry-run` to be runnable end-to-end.
-        if (not self._cfg.dry_run) and no_linux_display:
+        if (not self._cfg.dry_run) and no_display:
             raise RuntimeError(
-                "No GUI display detected (DISPLAY/WAYLAND_DISPLAY unset). "
-                "Run under WSLg/X11 or use --dry-run."
+                "No GUI display detected. Run in an interactive GUI session, or use --dry-run."
             )
+
+        import nodriver as uc  # local import: unit tests run without nodriver installed
 
         # Connect to an existing debuggable Chrome instead of launching a local browser.
         if self._cfg.cdp_host and (self._cfg.cdp_port is not None):
             kwargs = {"host": str(self._cfg.cdp_host), "port": int(self._cfg.cdp_port)}
         else:
-            kwargs = {"headless": bool(self._cfg.dry_run and no_linux_display)}
+            kwargs = {"headless": bool(self._cfg.dry_run and no_display)}
             if self._cfg.shim_profile:
                 kwargs["user_data_dir"] = str(self._cfg.shim_profile)
 
