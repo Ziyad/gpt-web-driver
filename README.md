@@ -111,6 +111,23 @@ Dry-run (safe; prints intended actions without moving the mouse):
 gpt-web-driver run --url "http://127.0.0.1:6767/index.html" --selector "#fname" --text "Hello" --dry-run
 ```
 
+## Example: Extract Chat Messages (Read-Only)
+
+`sample-body.html` (and similar chat UIs) include message nodes tagged with `data-message-author-role`.
+The script below uses CDP DOM calls only (no `Runtime.evaluate`) and prints a JSON array of messages.
+
+Serve `sample-body.html`:
+
+```powershell
+python -m http.server 6767
+```
+
+Extract messages:
+
+```powershell
+python .\scripts\extract_chat_messages.py --url "http://127.0.0.1:6767/sample-body.html"
+```
+
 Run the local demo (serves `sample-body.html` over HTTP and runs a single browser session):
 
 ```bash
