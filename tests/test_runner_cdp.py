@@ -26,6 +26,8 @@ def _base_config(**overrides):
         browser_cache_dir=None,
         cdp_host=None,
         cdp_port=None,
+        scale_x=1.0,
+        scale_y=1.0,
         offset_x=0.0,
         offset_y=0.0,
         noise=Noise(x_px=0, y_px=0),

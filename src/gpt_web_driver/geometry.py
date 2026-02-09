@@ -30,10 +30,12 @@ def viewport_to_screen(
     viewport_x: float,
     viewport_y: float,
     *,
+    scale_x: float = 1.0,
+    scale_y: float = 1.0,
     offset_x: float,
     offset_y: float,
 ) -> Tuple[float, float]:
-    return (viewport_x + offset_x, viewport_y + offset_y)
+    return (viewport_x * scale_x + offset_x, viewport_y * scale_y + offset_y)
 
 
 def apply_noise(

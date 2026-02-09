@@ -15,6 +15,7 @@ def test_rect_center():
 
 def test_viewport_to_screen():
     assert viewport_to_screen(1.5, 2.5, offset_x=10, offset_y=20) == (11.5, 22.5)
+    assert viewport_to_screen(1.5, 2.5, scale_x=2.0, scale_y=3.0, offset_x=10, offset_y=20) == (13.0, 27.5)
 
 
 def test_apply_noise_deterministic():

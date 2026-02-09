@@ -127,6 +127,34 @@ Typical event types include:
 
 Event schema details: `docs/interface.md`.
 
+### Multi-Step Flows (JSON)
+
+For multi-step automation (navigate, type, click, wait, extract), use `flow` with a JSON spec:
+
+```bash
+gpt-web-driver flow --flow flow.json --var input_text="Hello"
+```
+
+Example `flow.json`:
+
+```json
+{
+  "vars": { "input_text": "Hello" },
+  "steps": [
+    { "action": "navigate", "url": "http://127.0.0.1:6767/index.html" },
+    { "action": "type", "selector": "#fname", "text": "{{input_text}}", "click_first": true },
+    { "action": "click", "selector": "#submit" },
+    { "action": "wait_for_text", "within": "#results", "selector": ".status", "contains": "Done", "timeout_s": 30 },
+    { "action": "extract_text", "selector": "#final-answer", "into": "result" }
+  ],
+  "result": "{{result}}"
+}
+```
+
+Notes:
+- `wait_for_text` and `extract_text` use CDP DOM reads (textContent-ish), not `innerText`.
+- In `--output jsonl` mode, the CLI emits `flow.step.*` events plus a final `result` event.
+
 ### Python API
 
 This project is usable as a small library:
@@ -252,12 +280,30 @@ into your cache directory and launch it via `nodriver`.
 
 ### Calibration
 
-Viewport coordinates returned by CDP are translated to screen coordinates by adding configurable offsets:
+Viewport coordinates returned by CDP are translated to screen coordinates using a simple linear mapping:
 
+- `screen_x = viewport_x * scale_x + offset_x`
+- `screen_y = viewport_y * scale_y + offset_y`
+
+You can provide these values explicitly:
+
+- `--scale-x`, `--scale-y`
 - `--offset-x`
 - `--offset-y`
 
-Defaults are conservative and typically require manual tuning, depending on OS theme, window decorations, DPI scaling, and monitor layout.
+Or generate them interactively:
+
+```bash
+gpt-web-driver calibrate --write-calibration
+```
+
+Then apply them to any command:
+
+```bash
+gpt-web-driver run --calibration <saved-path> --url "http://127.0.0.1:6767/index.html"
+```
+
+Defaults are conservative and typically require calibration/tuning, depending on OS theme, window decorations, DPI scaling, and monitor layout.
 
 Other knobs:
 
@@ -289,6 +335,21 @@ Run:
 python -m pytest
 ```
 
+## macOS notes
+
+- For `--no-dry-run`, macOS typically requires enabling Accessibility permissions for the terminal/Python you are running (System Settings -> Privacy & Security -> Accessibility).
+- If OS-level input is blocked or clicks land incorrectly, start with `gpt-web-driver calibrate` and verify the browser window is on the expected monitor.
+
+## Linux desktop notes
+
+- OS-level input via `pyautogui` works best on X11/Xorg. On Wayland, synthetic input is often restricted; if you hit issues, try an Xorg session (or ensure XWayland is in use).
+- You may need extra system packages (Ubuntu example):
+
+```bash
+sudo apt update
+sudo apt install -y python3-tk python3-dev scrot
+```
+
 ## Ubuntu on WSL notes
 
 OS-level input requires a GUI display. On Windows 11, WSLg typically "just works". Quick sanity checks:
@@ -312,5 +373,5 @@ If you do not have a GUI in WSL, stick to `--dry-run` (and/or set `GWD_DRY_RUN=1
 - `No module named pytest`: install dev deps: `python -m pip install -e ".[dev]"`.
 - `pyautogui` missing: install OS input deps: `python -m pip install -e ".[gui]"`.
 - `pyautogui` fails to import / complains about display: run with `--dry-run` or ensure you have a GUI session.
-- Clicks land in the wrong place: tune `--offset-x/--offset-y` and consider maximizing the window.
+- Clicks land in the wrong place: run `gpt-web-driver calibrate` (or tune `--scale-x/--scale-y/--offset-x/--offset-y`) and consider maximizing the window.
 - `could not find a valid chrome browser binary`: either install Chrome/Chromium, pass `--browser-path`, or allow auto-download (default).

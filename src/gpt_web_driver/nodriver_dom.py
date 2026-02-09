@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import re
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple
+from html.parser import HTMLParser
+from typing import Any
 
 from .geometry import quad_center, rect_center
 
@@ -21,18 +23,22 @@ def _quad_center_xy(quad: list[float]) -> tuple[float, float]:
     return (sum(xs) / len(xs), sum(ys) / len(ys))
 
 
-async def selector_viewport_center(page: Any, selector: str) -> ViewportPoint:
+async def selector_viewport_center(page: Any, selector: str, *, within_selector: str | None = None) -> ViewportPoint:
     """
     DOM-only fallback for getting an element's viewport center.
 
-    This avoids Runtime.evaluate (which we disable in stealth_init) by using
+    This avoids Runtime evaluation (which we disable in stealth_init) by using
     DOM.getDocument/querySelector/getBoxModel via `page.send`.
     """
     if not hasattr(page, "send"):
         raise AttributeError("page has no send() for CDP DOM fallback")
 
-    node_id = await dom_query_selector_node_id(page, selector)
+    node_id = await dom_query_selector_node_id(page, selector, within_selector=within_selector)
     if not node_id:
+        if within_selector:
+            raise RuntimeError(
+                f"DOM.querySelector returned no nodeId for selector: {selector} within {within_selector}"
+            )
         raise RuntimeError(f"DOM.querySelector returned no nodeId for selector: {selector}")
 
     # Prefer nodriver's generated CDP commands if available (page.send usually expects these).
@@ -135,7 +141,7 @@ async def selector_viewport_center(page: Any, selector: str) -> ViewportPoint:
     return ViewportPoint(cx, cy)
 
 
-async def dom_query_selector_node_id(page: Any, selector: str) -> int:
+async def dom_query_selector_node_id(page: Any, selector: str, *, within_selector: str | None = None) -> int:
     """
     CDP DOM querySelector that returns a nodeId (0 if not found).
     """
@@ -180,29 +186,41 @@ async def dom_query_selector_node_id(page: Any, selector: str) -> int:
 
     if uc is not None:
         try:
+            if within_selector:
+                # Resolve the "within" nodeId first, then query within it.
+                root_id_obj: Any = await dom_query_selector_node_id(page, within_selector)
+                if not root_id_obj:
+                    return 0
+            else:
+                root_id_obj = None
+
             # Best-effort; ignore if the domain is already enabled or API differs.
             try:
                 await page.send(uc.cdp.dom.enable())
             except Exception:
                 pass
 
-            # Match nodriver's own usage: get_document(-1, True) for stability across frames/updates.
-            try:
-                doc = await page.send(uc.cdp.dom.get_document(-1, True))
-            except TypeError:
-                doc = await page.send(uc.cdp.dom.get_document())
-
-            # nodriver returns a Node object (node_id is a NodeId which has to_json()).
-            root_id_obj = _get(doc, "node_id", "nodeId")
             if root_id_obj is None:
-                # Fallback to dict-ish shape if some driver returns {"root": {"nodeId": ...}}.
-                root = _get(doc, "root") or doc
-                root_id_obj = _get(root, "node_id", "nodeId") or _node_id_from(root)
+                # Match nodriver's own usage: get_document(-1, True) for stability across frames/updates.
+                try:
+                    doc = await page.send(uc.cdp.dom.get_document(-1, True))
+                except TypeError:
+                    doc = await page.send(uc.cdp.dom.get_document())
+
+                # nodriver returns a Node object (node_id is a NodeId which has to_json()).
+                root_id_obj = _get(doc, "node_id", "nodeId")
+                if root_id_obj is None:
+                    # Fallback to dict-ish shape if some driver returns {"root": {"nodeId": ...}}.
+                    root = _get(doc, "root") or doc
+                    root_id_obj = _get(root, "node_id", "nodeId") or _node_id_from(root)
 
             if not root_id_obj:
                 return 0
 
-            q_resp = await page.send(uc.cdp.dom.query_selector(root_id_obj, selector))
+            try:
+                q_resp = await page.send(uc.cdp.dom.query_selector(root_id_obj, selector))
+            except TypeError:
+                q_resp = await page.send(uc.cdp.dom.query_selector(node_id=root_id_obj, selector=selector))
             # nodriver returns a NodeId (int subclass) which also supports .to_json().
             return q_resp if q_resp else 0
         except Exception:
@@ -215,9 +233,12 @@ async def dom_query_selector_node_id(page: Any, selector: str) -> int:
     except Exception:
         pass
 
-    doc = await _send("DOM.getDocument", {"depth": 1, "pierce": True})
-    root = _get(doc, "root") or {}
-    root_id = _node_id_from(root)
+    if within_selector:
+        root_id = await dom_query_selector_node_id(page, within_selector)
+    else:
+        doc = await _send("DOM.getDocument", {"depth": 1, "pierce": True})
+        root = _get(doc, "root") or {}
+        root_id = _node_id_from(root)
     if not root_id:
         return 0
 
@@ -225,7 +246,9 @@ async def dom_query_selector_node_id(page: Any, selector: str) -> int:
     return _node_id_from(q)
 
 
-async def wait_for_selector(page: Any, selector: str, *, timeout_s: float) -> None:
+async def wait_for_selector(
+    page: Any, selector: str, *, timeout_s: float, within_selector: str | None = None
+) -> None:
     # Prefer a CDP DOM polling loop over driver-provided wait_for(), since some
     # stacks cache a stale document nodeId across navigations (observed in nodriver).
     if hasattr(page, "send"):
@@ -234,13 +257,17 @@ async def wait_for_selector(page: Any, selector: str, *, timeout_s: float) -> No
         last_exc: Exception | None = None
         while True:
             try:
-                if await dom_query_selector_node_id(page, selector):
+                if await dom_query_selector_node_id(page, selector, within_selector=within_selector):
                     return
             except Exception as e:
                 # Not found yet (or transient DOM state); keep polling until timeout.
                 last_exc = e
 
             if loop.time() >= deadline:
+                if within_selector:
+                    raise TimeoutError(
+                        f"Timed out waiting for selector: {selector} within {within_selector}"
+                    ) from last_exc
                 raise TimeoutError(f"Timed out waiting for selector: {selector}") from last_exc
             await asyncio.sleep(0.05)
 
@@ -253,6 +280,111 @@ async def wait_for_selector(page: Any, selector: str, *, timeout_s: float) -> No
         return
 
     raise AttributeError("page has no wait_for_selector, send, or wait_for")
+
+
+async def dom_get_outer_html(page: Any, node_id: int) -> str:
+    if not hasattr(page, "send"):
+        raise AttributeError("page has no send() for CDP DOM outerHTML")
+
+    # Prefer nodriver's generated CDP commands if available (page.send usually expects these).
+    uc = None
+    try:
+        import nodriver as uc  # type: ignore[assignment]
+    except Exception:
+        uc = None
+
+    async def _send_dict(method: str, params: dict[str, Any] | None = None) -> Any:
+        msg: dict[str, Any] = {"method": method}
+        if params:
+            msg["params"] = params
+        return await page.send(msg)
+
+    resp: Any = None
+    nodriver_exc: Exception | None = None
+    if uc is not None:
+        try:
+            # Best-effort; ignore if the domain is already enabled or API differs.
+            try:
+                await page.send(uc.cdp.dom.enable())
+            except Exception:
+                pass
+
+            fn = getattr(getattr(getattr(uc, "cdp", None), "dom", None), "get_outer_html", None)
+            if callable(fn):
+                try:
+                    resp = await page.send(fn(node_id))
+                except TypeError:
+                    resp = await page.send(fn(node_id=node_id))
+        except Exception as e:
+            nodriver_exc = e
+            resp = None
+
+    if resp is None:
+        try:
+            resp = await _send_dict("DOM.getOuterHTML", {"nodeId": int(node_id)})
+        except Exception:
+            if nodriver_exc is not None:
+                raise nodriver_exc
+            raise
+
+    if isinstance(resp, dict):
+        v = resp.get("outerHTML") or resp.get("outer_html")
+        if isinstance(v, str):
+            return v
+        # Some stacks might already return a string-ish value.
+        return "" if v is None else str(v)
+
+    v = getattr(resp, "outer_html", None) or getattr(resp, "outerHTML", None)
+    if isinstance(v, str):
+        return v
+    return "" if resp is None else str(resp)
+
+
+_WS_RE = re.compile(r"\s+")
+
+
+def html_to_text(html: str) -> str:
+    """
+    Best-effort HTML -> textContent-ish string.
+
+    This intentionally does not require Runtime evaluation/innerText.
+    """
+
+    class _Extractor(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            self.parts: list[str] = []
+            self._ignore_depth = 0
+
+        def handle_starttag(self, tag: str, attrs) -> None:  # type: ignore[override]
+            if tag in {"script", "style"}:
+                self._ignore_depth += 1
+
+        def handle_endtag(self, tag: str) -> None:  # type: ignore[override]
+            if tag in {"script", "style"} and self._ignore_depth > 0:
+                self._ignore_depth -= 1
+
+        def handle_data(self, data: str) -> None:
+            if self._ignore_depth:
+                return
+            if data:
+                self.parts.append(data)
+
+    p = _Extractor()
+    p.feed(str(html))
+    txt = _WS_RE.sub(" ", " ".join(p.parts)).strip()
+    return txt
+
+
+async def selector_text_content(page: Any, selector: str, *, within_selector: str | None = None) -> str:
+    node_id = await dom_query_selector_node_id(page, selector, within_selector=within_selector)
+    if not node_id:
+        if within_selector:
+            raise RuntimeError(f"DOM.querySelector returned no nodeId for selector: {selector} within {within_selector}")
+        raise RuntimeError(f"DOM.querySelector returned no nodeId for selector: {selector}")
+
+    html = await dom_get_outer_html(page, node_id)
+    return html_to_text(html)
 
 
 async def select(page: Any, selector: str) -> Any:

@@ -16,8 +16,11 @@ Conventions:
 
 `interact.point`
 - `selector`: string
+- `action`: string (e.g. `interact`, `click`)
+- `within`: string (optional; root selector used to scope the query)
 - `viewport_x`, `viewport_y`: number (CSS pixels, viewport-relative)
-- `screen_x`, `screen_y`: number (viewport coords + offsets)
+- `scale_x`, `scale_y`: number (viewport->screen scale)
+- `screen_x`, `screen_y`: number (viewport coords * scale + offsets)
 - `final_x`, `final_y`: number (after jitter/noise)
 
 `os.move_to`
@@ -42,6 +45,23 @@ Conventions:
 - `key`: string
 - `dry_run`: boolean
 
+`flow.step.start`
+- `i`: number (0-based step index)
+- `action`: string
+
+`flow.step.end`
+- `i`: number (0-based step index)
+- `action`: string
+
+`wait_for_text.ok`
+- `selector`: string
+- `within`: string (optional)
+- `contains`: string
+- `chars`: number
+
+`result`
+- `value`: string | null
+
 `doctor`
 - `python`: string
 - `platform`: string
@@ -61,3 +81,18 @@ Conventions:
 `error`
 - `error_type`: string
 - `error`: string
+
+`calibrate.start`
+- `url`: string
+
+`calibrate.point`
+- `point`: string (`A` or `B`)
+- `viewport_x`, `viewport_y`: number
+- `screen_x`, `screen_y`: number
+
+`calibrate.result`
+- `scale_x`, `scale_y`: number
+- `offset_x`, `offset_y`: number
+
+`calibrate.write`
+- `path`: string

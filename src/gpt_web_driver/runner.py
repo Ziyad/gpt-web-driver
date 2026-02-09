@@ -19,6 +19,7 @@ from .nodriver_dom import (
     maybe_maximize,
     select,
     selector_viewport_center,
+    selector_text_content,
     wait_for_selector,
 )
 from .os_input import MouseProfile, OsInput, TypingProfile
@@ -66,6 +67,8 @@ class RunConfig:
     browser_cache_dir: Optional[Path]
     cdp_host: Optional[str]
     cdp_port: Optional[int]
+    scale_x: float
+    scale_y: float
     offset_x: float
     offset_y: float
     noise: Noise
@@ -94,6 +97,8 @@ class RunConfig:
         browser_cache_dir: Path | None = None,
         cdp_host: str | None = None,
         cdp_port: int | None = None,
+        scale_x: float = 1.0,
+        scale_y: float = 1.0,
         offset_x: float = 0.0,
         offset_y: float = 80.0,
         noise: Noise | None = None,
@@ -124,6 +129,8 @@ class RunConfig:
             browser_cache_dir=browser_cache_dir,
             cdp_host=(str(cdp_host) if cdp_host else None),
             cdp_port=(int(cdp_port) if cdp_port is not None else None),
+            scale_x=float(scale_x),
+            scale_y=float(scale_y),
             offset_x=float(offset_x),
             offset_y=float(offset_y),
             noise=noise or Noise(x_px=12, y_px=5),
@@ -278,9 +285,20 @@ class FlowRunner:
         await stealth_init(self._page)
         return self._page
 
-    async def locate_point(self, selector: str) -> ViewportPoint:
+    async def locate_point(self, selector: str, *, within_selector: str | None = None) -> ViewportPoint:
         assert self._page is not None
-        await wait_for_selector(self._page, selector, timeout_s=self._cfg.timeout_s)
+        await wait_for_selector(
+            self._page,
+            selector,
+            within_selector=within_selector,
+            timeout_s=self._cfg.timeout_s,
+        )
+
+        # When scoping within a root selector, skip element-handle selection and
+        # go straight to the DOM fallback, which supports nodeId-scoped querying.
+        if within_selector:
+            return await selector_viewport_center(self._page, selector, within_selector=within_selector)
+
         try:
             el = await select(self._page, selector)
         except Exception:
@@ -297,45 +315,236 @@ class FlowRunner:
         except Exception:
             return await selector_viewport_center(self._page, selector)
 
-    async def interact(self, *, selector: str, text: Optional[str]) -> None:
-        assert self._browser is not None
+    def _ensure_os(self) -> OsInput:
         if self._os is None:
+            assert self._browser is not None
             self._os = OsInput(
                 dry_run=self._cfg.dry_run,
                 rng=self._os_rng,
                 emit=self._emit,
                 include_text_in_events=self._include_text_in_events,
             )
+        return self._os
+
+    def _emit_point(
+        self,
+        *,
+        action: str,
+        selector: str,
+        within_selector: str | None,
+        pt: ViewportPoint,
+        sx: float,
+        sy: float,
+        fx: float,
+        fy: float,
+    ) -> None:
+        if self._emit is None:
+            return
+        ev: dict[str, Any] = {
+            "event": "interact.point",
+            "action": str(action),
+            "selector": str(selector),
+            "viewport_x": float(pt.x),
+            "viewport_y": float(pt.y),
+            "scale_x": float(self._cfg.scale_x),
+            "scale_y": float(self._cfg.scale_y),
+            "screen_x": float(sx),
+            "screen_y": float(sy),
+            "final_x": float(fx),
+            "final_y": float(fy),
+        }
+        if within_selector:
+            ev["within"] = str(within_selector)
+        self._emit(ev)
+
+    async def interact(self, *, selector: str, text: Optional[str]) -> None:
+        assert self._browser is not None
+        os_in = self._ensure_os()
 
         pt = await self.locate_point(selector)
-        sx, sy = viewport_to_screen(pt.x, pt.y, offset_x=self._cfg.offset_x, offset_y=self._cfg.offset_y)
+        sx, sy = viewport_to_screen(
+            pt.x,
+            pt.y,
+            scale_x=self._cfg.scale_x,
+            scale_y=self._cfg.scale_y,
+            offset_x=self._cfg.offset_x,
+            offset_y=self._cfg.offset_y,
+        )
         fx, fy = apply_noise(sx, sy, noise=self._cfg.noise, rng=self._noise_rng)
-        if self._emit is not None:
-            self._emit(
-                {
-                    "event": "interact.point",
-                    "selector": str(selector),
-                    "viewport_x": float(pt.x),
-                    "viewport_y": float(pt.y),
-                    "screen_x": float(sx),
-                    "screen_y": float(sy),
-                    "final_x": float(fx),
-                    "final_y": float(fy),
-                }
-            )
+        self._emit_point(
+            action="interact",
+            selector=selector,
+            within_selector=None,
+            pt=pt,
+            sx=sx,
+            sy=sy,
+            fx=fx,
+            fy=fy,
+        )
 
         await maybe_bring_to_front(self._browser)
         if self._cfg.pre_interact_delay_s > 0:
             await asyncio.sleep(self._cfg.pre_interact_delay_s)
-        self._os.move_to(fx, fy, profile=self._cfg.mouse)
-        self._os.click()
+        os_in.move_to(fx, fy, profile=self._cfg.mouse)
+        os_in.click()
 
         if text:
             if self._cfg.post_click_delay_s > 0:
                 await asyncio.sleep(self._cfg.post_click_delay_s)
-            await self._os.human_type(text, profile=self._cfg.typing)
+            await os_in.human_type(text, profile=self._cfg.typing)
             if self._cfg.press_enter:
-                self._os.press("enter")
+                os_in.press("enter")
+
+    async def click(self, selector: str, *, within_selector: str | None = None) -> None:
+        assert self._browser is not None
+        if self._page is None:
+            raise RuntimeError("click() called before navigate()")
+
+        os_in = self._ensure_os()
+        pt = await self.locate_point(selector, within_selector=within_selector)
+        sx, sy = viewport_to_screen(
+            pt.x,
+            pt.y,
+            scale_x=self._cfg.scale_x,
+            scale_y=self._cfg.scale_y,
+            offset_x=self._cfg.offset_x,
+            offset_y=self._cfg.offset_y,
+        )
+        fx, fy = apply_noise(sx, sy, noise=self._cfg.noise, rng=self._noise_rng)
+        self._emit_point(
+            action="click",
+            selector=selector,
+            within_selector=within_selector,
+            pt=pt,
+            sx=sx,
+            sy=sy,
+            fx=fx,
+            fy=fy,
+        )
+
+        await maybe_bring_to_front(self._browser)
+        if self._cfg.pre_interact_delay_s > 0:
+            await asyncio.sleep(self._cfg.pre_interact_delay_s)
+        os_in.move_to(fx, fy, profile=self._cfg.mouse)
+        os_in.click()
+
+    async def type(
+        self,
+        selector: str,
+        text: str,
+        *,
+        within_selector: str | None = None,
+        click_first: bool = True,
+        press_enter: bool = False,
+        post_click_delay_s: float | None = None,
+    ) -> None:
+        assert self._browser is not None
+        if self._page is None:
+            raise RuntimeError("type() called before navigate()")
+
+        os_in = self._ensure_os()
+        if click_first:
+            await self.click(selector, within_selector=within_selector)
+        else:
+            await maybe_bring_to_front(self._browser)
+            if self._cfg.pre_interact_delay_s > 0:
+                await asyncio.sleep(self._cfg.pre_interact_delay_s)
+
+        delay = self._cfg.post_click_delay_s if post_click_delay_s is None else float(post_click_delay_s)
+        if delay > 0:
+            await asyncio.sleep(delay)
+        await os_in.human_type(str(text), profile=self._cfg.typing)
+        if press_enter:
+            os_in.press("enter")
+
+    async def press(self, key: str) -> None:
+        assert self._browser is not None
+        os_in = self._ensure_os()
+        await maybe_bring_to_front(self._browser)
+        if self._cfg.pre_interact_delay_s > 0:
+            await asyncio.sleep(self._cfg.pre_interact_delay_s)
+        os_in.press(key)
+
+    async def wait_for_selector(
+        self,
+        selector: str,
+        *,
+        within_selector: str | None = None,
+        timeout_s: float | None = None,
+    ) -> None:
+        if self._page is None:
+            raise RuntimeError("wait_for_selector() called before navigate()")
+        t = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
+        await wait_for_selector(self._page, selector, within_selector=within_selector, timeout_s=float(t))
+
+    async def extract_text(
+        self,
+        selector: str,
+        *,
+        within_selector: str | None = None,
+        timeout_s: float | None = None,
+    ) -> str:
+        if self._page is None:
+            raise RuntimeError("extract_text() called before navigate()")
+
+        t = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
+        if t > 0:
+            await wait_for_selector(self._page, selector, within_selector=within_selector, timeout_s=float(t))
+        return await selector_text_content(self._page, selector, within_selector=within_selector)
+
+    async def wait_for_text(
+        self,
+        selector: str,
+        *,
+        contains: str,
+        within_selector: str | None = None,
+        timeout_s: float | None = None,
+        poll_s: float | None = None,
+    ) -> str:
+        if self._page is None:
+            raise RuntimeError("wait_for_text() called before navigate()")
+
+        loop = asyncio.get_running_loop()
+        t = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
+        deadline = loop.time() + float(t)
+        poll = 0.05 if poll_s is None else float(poll_s)
+        last_text: str | None = None
+        last_exc: Exception | None = None
+
+        while True:
+            try:
+                last_text = await selector_text_content(self._page, selector, within_selector=within_selector)
+                if str(contains) in last_text:
+                    if self._emit is not None:
+                        ev: dict[str, Any] = {
+                            "event": "wait_for_text.ok",
+                            "selector": str(selector),
+                            "contains": str(contains),
+                            "chars": int(len(last_text)),
+                        }
+                        if within_selector:
+                            ev["within"] = str(within_selector)
+                        self._emit(ev)
+                    return last_text
+            except Exception as e:
+                last_exc = e
+
+            if loop.time() >= deadline:
+                blob = ""
+                if last_text:
+                    snip = last_text
+                    if len(snip) > 200:
+                        snip = snip[:200] + "..."
+                    blob = f" last_text={snip!r}"
+                if within_selector:
+                    raise TimeoutError(
+                        f"Timed out waiting for text {contains!r} in selector: {selector} within {within_selector}.{blob}"
+                    ) from last_exc
+                raise TimeoutError(
+                    f"Timed out waiting for text {contains!r} in selector: {selector}.{blob}"
+                ) from last_exc
+
+            await asyncio.sleep(poll)
 
 
 def default_dry_run() -> bool:

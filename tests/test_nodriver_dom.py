@@ -2,7 +2,10 @@ import asyncio
 
 from gpt_web_driver.nodriver_dom import (
     ViewportPoint,
+    dom_get_outer_html,
+    dom_query_selector_node_id,
     element_viewport_center,
+    html_to_text,
     maybe_maximize,
     normalize_element,
     select,
@@ -97,4 +100,49 @@ def test_wait_for_selector_prefers_cdp_polling_over_wait_for():
 
     asyncio.run(wait_for_selector(Page(), "#x", timeout_s=0.1))
     assert "DOM.querySelector" in calls
+
+
+def test_dom_query_selector_node_id_within_selector_scopes_query():
+    calls: list[dict] = []
+
+    class Page:
+        async def send(self, msg):
+            calls.append(msg)
+            m = msg.get("method")
+            if m == "DOM.enable":
+                return {}
+            if m == "DOM.getDocument":
+                return {"root": {"nodeId": 1}}
+            if m == "DOM.querySelector":
+                sel = msg["params"]["selector"]
+                if sel == "#root":
+                    assert msg["params"]["nodeId"] == 1
+                    return {"nodeId": 10}
+                if sel == ".child":
+                    assert msg["params"]["nodeId"] == 10
+                    return {"nodeId": 11}
+                raise AssertionError(f"unexpected selector: {sel}")
+            raise AssertionError(f"unexpected CDP method: {m}")
+
+    nid = asyncio.run(dom_query_selector_node_id(Page(), ".child", within_selector="#root"))
+    assert nid == 11
+
+
+def test_dom_get_outer_html_dict_cdp():
+    class Page:
+        async def send(self, msg):
+            m = msg.get("method")
+            if m == "DOM.enable":
+                return {}
+            if m == "DOM.getOuterHTML":
+                assert msg["params"]["nodeId"] == 2
+                return {"outerHTML": "<div>Hello <b>world</b></div>"}
+            raise AssertionError(f"unexpected CDP method: {m}")
+
+    assert asyncio.run(dom_get_outer_html(Page(), 2)) == "<div>Hello <b>world</b></div>"
+
+
+def test_html_to_text_strips_tags_and_ignores_script_style():
+    html = "<div> A <span>B</span> C <script>bad()</script><style>.x{}</style></div>"
+    assert html_to_text(html) == "A B C"
 

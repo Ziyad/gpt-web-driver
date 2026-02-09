@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Optional
 
+from platformdirs import user_cache_dir
+
 _CFT_LKG_DOWNLOADS_JSON_URL = (
     "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
 )
@@ -110,7 +112,8 @@ def default_browser_cache_dir(env: Mapping[str, str] = os.environ) -> Path:
     if xdg:
         return Path(xdg).expanduser() / "gpt-web-driver"
 
-    return Path.home() / ".cache" / "gpt-web-driver"
+    # Cross-OS default: ~/.cache on Linux, ~/Library/Caches on macOS, %LOCALAPPDATA% on Windows.
+    return Path(user_cache_dir("gpt-web-driver"))
 
 
 def _cft_platform_key(sys_platform: str, machine: str) -> str:
