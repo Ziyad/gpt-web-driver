@@ -20,6 +20,12 @@ If you want to run with real OS-level input (non-dry-run), also install the GUI 
 python -m pip install -e ".[gui]"
 ```
 
+If you want to run the local OpenAI-compatible API server (`gpt-web-driver serve`), also install:
+
+```bash
+python -m pip install -e ".[api,nibs,gui]"
+```
+
 ## Tests
 
 ```bash

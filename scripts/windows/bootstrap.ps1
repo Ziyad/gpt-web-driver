@@ -89,10 +89,11 @@ if (-not (Test-Path ".venv\\Scripts\\Activate.ps1")) {
 python -m pip install -U pip
 
 if ($Dev) {
-  python -m pip install -e ".[dev,gui]"
+  python -m pip install -e ".[dev,gui,api,nibs,desktop]"
 } else {
-  python -m pip install -e ".[gui]"
+  python -m pip install -e ".[gui,api,nibs,desktop]"
 }
 
 Write-Host "Ready. Try: gpt-web-driver demo --dry-run   (or --no-dry-run)" -ForegroundColor Green
+Write-Host "API server: gpt-web-driver serve --url https://chat.openai.com/ --no-dry-run" -ForegroundColor Green
 Write-Host "Run tests: python -m pytest" -ForegroundColor Green

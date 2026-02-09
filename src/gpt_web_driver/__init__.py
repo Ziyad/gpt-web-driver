@@ -3,6 +3,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 from .flow import FlowResult, FlowSpecError, load_flow, run_flow
+from .nibs import ChatUIConfig, NibsConfig, NibsSession, default_shadow_profile_dir
 from .runner import FlowRunner, RunConfig, default_dry_run, run_demo, run_single
 from .stealth import stealth_init
 
@@ -17,11 +18,15 @@ Driver = FlowRunner
 __all__ = [
     "__version__",
     "Driver",
+    "ChatUIConfig",
     "FlowRunner",
     "FlowResult",
     "FlowSpecError",
+    "NibsConfig",
+    "NibsSession",
     "RunConfig",
     "default_dry_run",
+    "default_shadow_profile_dir",
     "load_flow",
     "run_demo",
     "run_flow",

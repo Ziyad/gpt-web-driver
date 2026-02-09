@@ -45,6 +45,22 @@ Conventions:
 - `key`: string
 - `dry_run`: boolean
 
+`os.key_down`
+- `key`: string
+- `dry_run`: boolean
+
+`os.key_up`
+- `key`: string
+- `dry_run`: boolean
+
+`os.hotkey`
+- `keys`: string[]
+- `dry_run`: boolean
+
+`os.scroll`
+- `clicks`: number
+- `dry_run`: boolean
+
 `flow.step.start`
 - `i`: number (0-based step index)
 - `action`: string

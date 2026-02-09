@@ -29,6 +29,6 @@ def test_stealth_init_sends_disable_calls():
     assert page.sent == [
         ("runtime.disable",),
         ("log.disable",),
-        ("debugger.disable",),
         ("debugger.set_breakpoints_active", False),
+        ("debugger.disable",),
     ]

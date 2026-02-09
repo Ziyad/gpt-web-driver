@@ -127,6 +127,97 @@ class OsInput:
         if self._emit is not None:
             self._emit(ev)
 
+    def key_down(self, key: str) -> None:
+        ev = {"event": "os.key_down", "key": str(key), "dry_run": bool(self._dry_run)}
+        if self._dry_run:
+            if self._emit is not None:
+                self._emit(ev)
+            else:
+                print(f"[dry-run] keyDown {key!r}")
+            return
+
+        assert self._pag is not None
+        fn = getattr(self._pag, "keyDown", None)
+        if not callable(fn):
+            raise RuntimeError("pyautogui.keyDown is unavailable")
+        fn(str(key))
+        if self._emit is not None:
+            self._emit(ev)
+
+    def key_up(self, key: str) -> None:
+        ev = {"event": "os.key_up", "key": str(key), "dry_run": bool(self._dry_run)}
+        if self._dry_run:
+            if self._emit is not None:
+                self._emit(ev)
+            else:
+                print(f"[dry-run] keyUp {key!r}")
+            return
+
+        assert self._pag is not None
+        fn = getattr(self._pag, "keyUp", None)
+        if not callable(fn):
+            raise RuntimeError("pyautogui.keyUp is unavailable")
+        fn(str(key))
+        if self._emit is not None:
+            self._emit(ev)
+
+    def hotkey(self, *keys: str) -> None:
+        ks = [str(k) for k in keys if k]
+        ev = {"event": "os.hotkey", "keys": ks, "dry_run": bool(self._dry_run)}
+        if self._dry_run:
+            if self._emit is not None:
+                self._emit(ev)
+            else:
+                print(f"[dry-run] hotkey {ks!r}")
+            return
+
+        assert self._pag is not None
+        fn = getattr(self._pag, "hotkey", None)
+        if callable(fn):
+            fn(*ks)
+        else:
+            # Fallback: press-and-release sequence.
+            for k in ks:
+                self.key_down(k)
+            for k in reversed(ks):
+                self.key_up(k)
+        if self._emit is not None:
+            self._emit(ev)
+
+    def scroll(self, clicks: int) -> None:
+        ev = {"event": "os.scroll", "clicks": int(clicks), "dry_run": bool(self._dry_run)}
+        if self._dry_run:
+            if self._emit is not None:
+                self._emit(ev)
+            else:
+                print(f"[dry-run] scroll {int(clicks)}")
+            return
+
+        assert self._pag is not None
+        fn = getattr(self._pag, "scroll", None)
+        if not callable(fn):
+            raise RuntimeError("pyautogui.scroll is unavailable")
+        fn(int(clicks))
+        if self._emit is not None:
+            self._emit(ev)
+
+    def position(self) -> tuple[float, float]:
+        """
+        Current mouse cursor position in the same coordinate space as moveTo().
+        """
+        if self._dry_run:
+            # In dry-run we avoid importing GUI modules; return a stable sentinel.
+            return (0.0, 0.0)
+
+        assert self._pag is not None
+        fn = getattr(self._pag, "position", None)
+        if not callable(fn):
+            raise RuntimeError("pyautogui.position is unavailable")
+        p = fn()
+        x = float(getattr(p, "x", p[0]))
+        y = float(getattr(p, "y", p[1]))
+        return (x, y)
+
     async def human_type(self, text: str, *, profile: TypingProfile) -> None:
         if self._emit is not None:
             ev: dict[str, Any] = {

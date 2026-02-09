@@ -23,5 +23,7 @@ async def stealth_init(page: Any, *, uc_module: Optional[Any] = None) -> None:
     # If domains are already disabled or the API differs, treat this as best-effort.
     await _best_effort_send(uc.cdp.runtime.disable())
     await _best_effort_send(uc.cdp.log.disable())
-    await _best_effort_send(uc.cdp.debugger.disable())
+    # Apply debugger configuration *before* disabling the domain; otherwise these
+    # calls are often ignored/rejected by the backend.
     await _best_effort_send(uc.cdp.debugger.set_breakpoints_active(active=False))
+    await _best_effort_send(uc.cdp.debugger.disable())

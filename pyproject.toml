@@ -16,6 +16,18 @@ dependencies = [
 [project.optional-dependencies]
 gui = [
   "pyautogui",
+  "pyperclip",
+]
+api = [
+  "fastapi",
+  "uvicorn",
+]
+nibs = [
+  "beautifulsoup4",
+  "numpy",
+]
+desktop = [
+  "pyvda; sys_platform == 'win32'",
 ]
 dev = [
   "pytest",

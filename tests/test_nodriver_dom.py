@@ -61,9 +61,9 @@ def test_selector_viewport_center_uses_dom_box_model():
     class Page:
         async def send(self, msg):
             m = msg.get("method")
-            if m == "DOM.enable":
-                return {}
             if m == "DOM.getDocument":
+                assert msg.get("params", {}).get("depth") == 1
+                assert msg.get("params", {}).get("pierce") is True
                 return {"root": {"nodeId": 1}}
             if m == "DOM.querySelector":
                 assert msg["params"]["selector"] == "#x"
@@ -85,8 +85,6 @@ def test_wait_for_selector_prefers_cdp_polling_over_wait_for():
         async def send(self, msg):
             m = msg.get("method")
             calls.append(m)
-            if m == "DOM.enable":
-                return {}
             if m == "DOM.getDocument":
                 return {"root": {"nodeId": 1}}
             if m == "DOM.querySelector":
@@ -99,7 +97,7 @@ def test_wait_for_selector_prefers_cdp_polling_over_wait_for():
     from gpt_web_driver.nodriver_dom import wait_for_selector
 
     asyncio.run(wait_for_selector(Page(), "#x", timeout_s=0.1))
-    assert "DOM.querySelector" in calls
+    assert calls == ["DOM.getDocument", "DOM.querySelector"]
 
 
 def test_dom_query_selector_node_id_within_selector_scopes_query():
@@ -109,9 +107,9 @@ def test_dom_query_selector_node_id_within_selector_scopes_query():
         async def send(self, msg):
             calls.append(msg)
             m = msg.get("method")
-            if m == "DOM.enable":
-                return {}
             if m == "DOM.getDocument":
+                assert msg.get("params", {}).get("depth") == 1
+                assert msg.get("params", {}).get("pierce") is True
                 return {"root": {"nodeId": 1}}
             if m == "DOM.querySelector":
                 sel = msg["params"]["selector"]
@@ -132,8 +130,6 @@ def test_dom_get_outer_html_dict_cdp():
     class Page:
         async def send(self, msg):
             m = msg.get("method")
-            if m == "DOM.enable":
-                return {}
             if m == "DOM.getOuterHTML":
                 assert msg["params"]["nodeId"] == 2
                 return {"outerHTML": "<div>Hello <b>world</b></div>"}

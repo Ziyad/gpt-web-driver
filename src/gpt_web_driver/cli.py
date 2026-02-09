@@ -53,11 +53,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    def add_common(sp: argparse.ArgumentParser) -> None:
+    def add_common(
+        sp: argparse.ArgumentParser,
+        *,
+        dry_run_default: bool | None = None,
+        timeout_default: float = 20.0,
+    ) -> None:
         sp.add_argument("--selector", default="#prompt-textarea")
         sp.add_argument("--text", default="Hello, this is a test prompt.")
         sp.add_argument("--no-enter", action="store_true", help="Do not press Enter after typing.")
-        sp.add_argument("--timeout", type=float, default=20.0)
+        sp.add_argument("--timeout", type=float, default=float(timeout_default))
 
         sp.add_argument(
             "--browser-path",
@@ -141,7 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument(
             "--dry-run",
             action=argparse.BooleanOptionalAction,
-            default=default_dry_run(),
+            default=(default_dry_run() if dry_run_default is None else bool(dry_run_default)),
             help="Do not execute OS-level input; log intended actions instead.",
         )
 
@@ -182,6 +187,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Set/override a flow variable (repeatable): --var KEY=VALUE",
     )
     add_common(flow)
+
+    serve = sub.add_parser("serve", help="Run a local OpenAI-compatible API server backed by a headed browser session.")
+    serve.add_argument("--url", required=True, help="Target chat UI URL (e.g., https://chat.openai.com/).")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument(
+        "--message-selector",
+        default="[data-message-author-role]",
+        help="CSS selector for chat message nodes (default matches ChatGPT-like DOM).",
+    )
+    serve.add_argument(
+        "--content-selector",
+        default=".whitespace-pre-wrap, .markdown",
+        help="CSS selector for message content inside a message node (best-effort).",
+    )
+    serve.add_argument(
+        "--virtual-desktop",
+        type=int,
+        default=None,
+        help="Best-effort: move the browser window to this virtual desktop index on startup.",
+    )
+    serve.add_argument(
+        "--paste-threshold",
+        type=int,
+        default=300,
+        help="Use smart paste for text >= this many characters (clipboard is preserved/restored).",
+    )
+    # Server should be real OS-input by default; users can opt into --dry-run explicitly.
+    # Also give it a longer default timeout than run/demo.
+    add_common(serve, dry_run_default=False, timeout_default=90.0)
 
     doctor = sub.add_parser("doctor", help="Print environment diagnostics (no browser automation).")
     doctor.add_argument(
@@ -585,6 +620,25 @@ def main(argv: Optional[list[str]] = None) -> int:
                 emit({"event": "result", "value": res.value})
             else:
                 sys.stdout.write((res.value or "") + "\n")
+            return 0
+
+        if ns.cmd == "serve":
+            from .api_server import create_app, run_uvicorn
+            from .nibs import ChatUIConfig, NibsConfig, NibsSession
+
+            cfg = _make_config(ns)
+            ui = ChatUIConfig(
+                url=str(ns.url),
+                input_selector=str(ns.selector),
+                message_selector=str(getattr(ns, "message_selector")),
+                content_selector=str(getattr(ns, "content_selector")),
+                timeout_s=float(getattr(ns, "timeout", 90.0)),
+                virtual_desktop=(int(getattr(ns, "virtual_desktop")) if getattr(ns, "virtual_desktop") is not None else None),
+            )
+            nibs_cfg = NibsConfig(run=cfg, ui=ui, paste_threshold_chars=int(getattr(ns, "paste_threshold", 300)))
+            session = NibsSession(nibs_cfg, emit=emit)
+            app = create_app(session=session)
+            run_uvicorn(app, host=str(getattr(ns, "host", "127.0.0.1")), port=int(getattr(ns, "port", 8000)), log_level=str(ns.log_level))
             return 0
 
         raise SystemExit(f"unknown command: {ns.cmd}")

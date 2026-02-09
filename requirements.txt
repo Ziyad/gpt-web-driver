@@ -1,3 +1,9 @@
 nodriver
 platformdirs
 pyautogui  # optional: required for OS-level input (non-dry-run)
+pyperclip  # optional: used for clipboard hygiene + smart paste
+fastapi  # optional: API server
+uvicorn  # optional: API server
+beautifulsoup4  # optional: offline HTML parsing
+numpy  # optional: neuromotor physics + pink noise
+pyvda; sys_platform == "win32"  # optional (Windows): virtual desktop management

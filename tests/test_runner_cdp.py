@@ -91,7 +91,7 @@ def test_runner_close_does_not_crash_when_browser_has_sync_stop(monkeypatch):
     assert r._browser is None
 
 
-def test_runner_dry_run_no_display_goes_headless(monkeypatch):
+def test_runner_dry_run_no_display_errors_when_launching_local_browser(monkeypatch):
     calls = []
 
     async def fake_start(**kwargs):
@@ -119,9 +119,9 @@ def test_runner_dry_run_no_display_goes_headless(monkeypatch):
     monkeypatch.setenv("WAYLAND_DISPLAY", "")
 
     cfg = _base_config(dry_run=True)
-    asyncio.run(FlowRunner(cfg).start())
-    assert calls
-    assert calls[0].get("headless") is True
+    with pytest.raises(RuntimeError, match="No GUI display detected"):
+        asyncio.run(FlowRunner(cfg).start())
+    assert calls == []
 
 
 def test_runner_no_dry_run_no_display_errors(monkeypatch):

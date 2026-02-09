@@ -5,7 +5,7 @@ Hybrid browser automation that splits the world into:
 - **Read (CDP):** use `nodriver` to launch/connect to Chrome and *passively* read DOM state/geometry.
 - **Write (OS):** use **OS-level** input (`pyautogui`, optional extra) for mouse + keyboard so the page sees trusted input events.
 
-This is intentionally "headed" automation. If you are running without a GUI (CI, containers, plain WSL without WSLg), use `--dry-run`.
+This is intentionally "headed" automation. `--dry-run` disables OS-level input, but the browser is still headed (you still need a real/virtual display, e.g. Xorg/XWayland or Xvfb).
 
 ## How It Works
 
@@ -48,7 +48,9 @@ Create a virtualenv and install the package (PowerShell):
 py -3.12 -m venv .venv   # (or 3.13+)
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
-python -m pip install -e ".[dev,gui]"  # include OS-level input deps
+python -m pip install -e ".[dev,gui]"  # OS-level input deps
+# For the OpenAI-compatible API server + NIBS modules:
+# python -m pip install -e ".[api,nibs,gui]"
 ```
 
 Or use the helper script:
@@ -70,7 +72,9 @@ Create a virtualenv and install the package:
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
-python -m pip install -e ".[dev,gui]"  # include OS-level input deps
+python -m pip install -e ".[dev,gui]"  # OS-level input deps
+# For the OpenAI-compatible API server + NIBS modules:
+# python -m pip install -e ".[api,nibs,gui]"
 ```
 
 If you only want runtime deps (no tests):
@@ -79,6 +83,8 @@ If you only want runtime deps (no tests):
 python -m pip install -e .       # dry-run only (no OS input deps)
 # or
 python -m pip install -e ".[gui]"  # include OS-level input deps
+# or (API server + NIBS modules + OS input)
+# python -m pip install -e ".[api,nibs,gui]"
 ```
 
 ## CLI
@@ -103,6 +109,23 @@ If you want `doctor` to also try auto-downloading Chrome for Testing when no bro
 
 ```bash
 gpt-web-driver doctor --download-browser
+```
+
+### API Server (OpenAI-Compatible)
+
+Run a local server that exposes `POST /v1/chat/completions` backed by a single, long-lived headed browser session:
+
+```bash
+gpt-web-driver serve --url "https://chat.openai.com/" --no-dry-run
+```
+
+Notes:
+- This path is intentionally headed; do not rely on headless mode.
+- Virtual desktop hiding is best-effort: on Linux it uses `wmctrl` (X11/XWayland); on Windows it can use `pyvda` (install `gpt-web-driver[desktop]`).
+- If the automation detects a verification/challenge, it pauses and returns HTTP 503 until resumed:
+
+```bash
+curl -X POST http://127.0.0.1:8000/v1/system/resume
 ```
 
 ### Machine-Readable Output (JSONL)
@@ -256,7 +279,7 @@ Note: `demo` is meant to be run from a repo checkout (it serves `sample-body.htm
 
 ### Safety toggles
 
-- `--dry-run`: does not import or call `pyautogui`; prints intended OS actions instead. Use this in containers/CI.
+- `--dry-run`: does not import or call `pyautogui`; prints intended OS actions instead. This is useful for development, but still requires a headed browser (or a CDP connection to an already-running headed browser).
 - `--no-dry-run`: force OS-level input even if auto-detection would default to dry-run.
 
 You can also override the default with `GWD_DRY_RUN=1`.
@@ -366,7 +389,7 @@ sudo apt update
 sudo apt install -y python3-tk python3-dev scrot
 ```
 
-If you do not have a GUI in WSL, stick to `--dry-run` (and/or set `GWD_DRY_RUN=1`) so your flow can still be exercised without moving the real mouse/keyboard.
+If you do not have a GUI in WSL, `--dry-run` can still be useful for validating DOM reads and emitted actions, but you'll need either a real/virtual display for the headed browser or a CDP connection to a headed Chrome running elsewhere (see the section above).
 
 ## Troubleshooting
 

@@ -14,10 +14,8 @@ from .demo_server import serve_directory
 from .geometry import Noise, apply_noise, viewport_to_screen
 from .nodriver_dom import (
     ViewportPoint,
-    element_viewport_center,
     maybe_bring_to_front,
     maybe_maximize,
-    select,
     selector_viewport_center,
     selector_text_content,
     wait_for_selector,
@@ -181,6 +179,7 @@ class FlowRunner:
             return
 
         no_display = _no_gui_display()
+        using_cdp = bool(self._cfg.cdp_host and (self._cfg.cdp_port is not None))
 
         if self._cfg.real_profile and self._cfg.shim_profile:
             ensure_profile(
@@ -190,12 +189,21 @@ class FlowRunner:
                 )
             )
 
-        # This project is "headed" by design when doing OS-level input, but in plain
-        # WSL (no WSLg/X11) we still want `--dry-run` to be runnable end-to-end.
-        if (not self._cfg.dry_run) and no_display:
-            raise RuntimeError(
-                "No GUI display detected. Run in an interactive GUI session, or use --dry-run."
-            )
+        # OS-level input requires a GUI session. Also note: even in --dry-run, this project
+        # keeps the browser headed by design. If you have no local display, connect to an
+        # already-running headed Chrome via --cdp-host/--cdp-port.
+        if no_display:
+            if not self._cfg.dry_run:
+                raise RuntimeError(
+                    "No GUI display detected. OS-level input requires a GUI session. "
+                    "Run in an interactive GUI session, or use --dry-run."
+                )
+            if not using_cdp:
+                raise RuntimeError(
+                    "No GUI display detected. --dry-run disables OS-level input, but the browser is still headed. "
+                    "Run with a real/virtual display (e.g., X11/Wayland/WSLg/Xvfb), or connect to a headed Chrome via "
+                    "--cdp-host/--cdp-port."
+                )
 
         import nodriver as uc  # local import: unit tests run without nodriver installed
 
@@ -203,7 +211,7 @@ class FlowRunner:
         if self._cfg.cdp_host and (self._cfg.cdp_port is not None):
             kwargs = {"host": str(self._cfg.cdp_host), "port": int(self._cfg.cdp_port)}
         else:
-            kwargs = {"headless": bool(self._cfg.dry_run and no_display)}
+            kwargs = {"headless": False}
             if self._cfg.shim_profile:
                 kwargs["user_data_dir"] = str(self._cfg.shim_profile)
 
@@ -285,6 +293,24 @@ class FlowRunner:
         await stealth_init(self._page)
         return self._page
 
+    @property
+    def browser(self) -> Any:
+        return self._browser
+
+    @property
+    def page(self) -> Any:
+        return self._page
+
+    def os_input(self) -> OsInput:
+        """
+        Access the OS input layer for advanced workflows.
+        """
+        return self._ensure_os()
+
+    @property
+    def config(self) -> RunConfig:
+        return self._cfg
+
     async def locate_point(self, selector: str, *, within_selector: str | None = None) -> ViewportPoint:
         assert self._page is not None
         await wait_for_selector(
@@ -293,27 +319,9 @@ class FlowRunner:
             within_selector=within_selector,
             timeout_s=self._cfg.timeout_s,
         )
-
-        # When scoping within a root selector, skip element-handle selection and
-        # go straight to the DOM fallback, which supports nodeId-scoped querying.
-        if within_selector:
-            return await selector_viewport_center(self._page, selector, within_selector=within_selector)
-
-        try:
-            el = await select(self._page, selector)
-        except Exception:
-            # Some driver versions have flaky element-handle selection; fall back to CDP.
-            return await selector_viewport_center(self._page, selector)
-
-        if not el:
-            # Last resort: try CDP directly (wait_for_selector should have ensured presence,
-            # but driver APIs can still return None depending on implementation).
-            return await selector_viewport_center(self._page, selector)
-
-        try:
-            return await element_viewport_center(el)
-        except Exception:
-            return await selector_viewport_center(self._page, selector)
+        # Always use the CDP DOM path to avoid relying on driver-specific element-handle
+        # behaviors (which may internally evaluate JS depending on implementation/version).
+        return await selector_viewport_center(self._page, selector, within_selector=within_selector)
 
     def _ensure_os(self) -> OsInput:
         if self._os is None:

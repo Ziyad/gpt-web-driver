@@ -1,5 +1,25 @@
-* text=auto eol=lf
+# Line ending policy:
+# - Normalize text to LF in the repo to avoid churn across platforms.
+# - Keep Windows PowerShell scripts as CRLF for best compatibility.
+
+* text=auto
+
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.sh text eol=lf
 
 *.ps1 text eol=crlf
+*.cmd text eol=crlf
 *.bat text eol=crlf
 
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
