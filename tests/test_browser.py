@@ -5,9 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from spec2_hybrid.browser import (
+from gpt_web_driver.browser import (
     BrowserNotFoundError,
     _cft_platform_key,
+    _find_system_browser,
     default_browser_cache_dir,
     default_browser_channel,
     default_browser_sandbox,
@@ -18,19 +19,19 @@ from spec2_hybrid.browser import (
 
 
 def test_default_browser_channel_env():
-    assert default_browser_channel({"SPEC2_BROWSER_CHANNEL": "beta"}) == "beta"
-    assert default_browser_channel({"SPEC2_BROWSER_CHANNEL": "  DEV  "}) == "dev"
+    assert default_browser_channel({"GWD_BROWSER_CHANNEL": "beta"}) == "beta"
+    assert default_browser_channel({"GWD_BROWSER_CHANNEL": "  DEV  "}) == "dev"
     assert default_browser_channel({}) == "stable"
 
 
 def test_default_download_browser_env():
     assert default_download_browser({}) is True
-    assert default_download_browser({"SPEC2_BROWSER_DOWNLOAD": "0"}) is False
-    assert default_download_browser({"SPEC2_BROWSER_DOWNLOAD": "true"}) is True
+    assert default_download_browser({"GWD_BROWSER_DOWNLOAD": "0"}) is False
+    assert default_download_browser({"GWD_BROWSER_DOWNLOAD": "true"}) is True
 
 
 def test_default_browser_cache_dir_env(tmp_path: Path):
-    d = default_browser_cache_dir({"SPEC2_BROWSER_CACHE_DIR": str(tmp_path)})
+    d = default_browser_cache_dir({"GWD_BROWSER_CACHE_DIR": str(tmp_path)})
     assert d == tmp_path
 
 
@@ -46,9 +47,9 @@ def test_is_wsl_from_proc_strings():
 
 
 def test_default_browser_sandbox_env_override():
-    assert default_browser_sandbox({"SPEC2_SANDBOX": "1"}) is True
-    assert default_browser_sandbox({"SPEC2_SANDBOX": "0"}) is False
-    assert default_browser_sandbox({"SPEC2_BROWSER_SANDBOX": "false"}) is False
+    assert default_browser_sandbox({"GWD_SANDBOX": "1"}) is True
+    assert default_browser_sandbox({"GWD_SANDBOX": "0"}) is False
+    assert default_browser_sandbox({"GWD_BROWSER_SANDBOX": "false"}) is False
 
 
 def test_default_browser_sandbox_wsl_default():
@@ -80,7 +81,7 @@ def test_resolve_browser_path_env(tmp_path: Path):
             download=False,
             channel="stable",
             cache_dir=tmp_path,
-            env={"SPEC2_BROWSER_PATH": str(exe)},
+            env={"GWD_BROWSER_PATH": str(exe)},
             which=lambda _: None,
         )
         == exe
@@ -134,3 +135,34 @@ def test_resolve_raises_when_download_disabled(tmp_path: Path):
             env={},
             which=lambda _: None,
         )
+
+
+def test_find_system_browser_windows_known_paths(tmp_path: Path):
+    # Simulate a Windows install layout under a temp dir.
+    program_files = tmp_path / "Program Files"
+    exe = program_files / "Google" / "Chrome" / "Application" / "chrome.exe"
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    exe.write_text("x", encoding="utf-8")
+
+    found = _find_system_browser(
+        which=lambda _: None,
+        env={"PROGRAMFILES": str(program_files)},
+        sys_platform="win32",
+    )
+    assert found == exe
+
+
+def test_find_system_browser_macos_user_applications(tmp_path: Path):
+    # Simulate a per-user install at ~/Applications.
+    home = tmp_path
+    exe = home / "Applications" / "Google Chrome.app" / "Contents" / "MacOS" / "Google Chrome"
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    exe.write_text("x", encoding="utf-8")
+
+    found = _find_system_browser(
+        which=lambda _: None,
+        env={},
+        sys_platform="darwin",
+        home=home,
+    )
+    assert found == exe

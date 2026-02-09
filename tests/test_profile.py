@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from spec2_hybrid.profile import ProfileConfig, ensure_profile
+from gpt_web_driver.profile import ProfileConfig, ensure_profile
 
 
 def test_ensure_profile_copies_and_excludes_cache(tmp_path: Path):

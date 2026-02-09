@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_no_forbidden_driver_interaction_strings():
-    base = Path(__file__).resolve().parents[1] / "src" / "spec2_hybrid"
+    base = Path(__file__).resolve().parents[1] / "src" / "gpt_web_driver"
     forbidden = [
         "page.click",
         "send_keys",

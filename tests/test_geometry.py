@@ -1,6 +1,6 @@
 import random
 
-from spec2_hybrid.geometry import Noise, apply_noise, quad_center, rect_center, viewport_to_screen
+from gpt_web_driver.geometry import Noise, apply_noise, quad_center, rect_center, viewport_to_screen
 
 
 def test_quad_center():

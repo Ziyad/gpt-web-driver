@@ -10,16 +10,20 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "nodriver",
-  "pyautogui",
 ]
 
 [project.optional-dependencies]
+gui = [
+  "pyautogui",
+]
 dev = [
   "pytest",
+  "ruff",
+  "mypy",
 ]
 
 [project.scripts]
-gpt-web-driver = "spec2_hybrid.cli:main"
+gpt-web-driver = "gpt_web_driver.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

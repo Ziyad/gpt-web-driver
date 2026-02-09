@@ -1,6 +1,6 @@
 import asyncio
 
-from spec2_hybrid.nodriver_dom import (
+from gpt_web_driver.nodriver_dom import (
     ViewportPoint,
     element_viewport_center,
     maybe_maximize,
@@ -93,7 +93,7 @@ def test_wait_for_selector_prefers_cdp_polling_over_wait_for():
         async def wait_for(self, selector: str, timeout: float):
             raise AssertionError("wait_for should not be called when send() is available")
 
-    from spec2_hybrid.nodriver_dom import wait_for_selector
+    from gpt_web_driver.nodriver_dom import wait_for_selector
 
     asyncio.run(wait_for_selector(Page(), "#x", timeout_s=0.1))
     assert "DOM.querySelector" in calls

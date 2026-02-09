@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from spec2_hybrid.geometry import Noise
-from spec2_hybrid.os_input import MouseProfile, TypingProfile
-from spec2_hybrid.runner import FlowRunner, RunConfig
+from gpt_web_driver.geometry import Noise
+from gpt_web_driver.os_input import MouseProfile, TypingProfile
+from gpt_web_driver.runner import FlowRunner, RunConfig
 
 
 def _base_config(**overrides):
@@ -33,6 +33,9 @@ def _base_config(**overrides):
         typing=TypingProfile(min_delay_s=0.0, max_delay_s=0.0),
         real_profile=None,
         shim_profile=None,
+        seed=None,
+        pre_interact_delay_s=0.0,
+        post_click_delay_s=0.0,
     )
     return cfg.__class__(**{**cfg.__dict__, **overrides})
 
@@ -53,7 +56,7 @@ def test_runner_uses_cdp_host_port(monkeypatch):
     monkeypatch.setitem(sys.modules, "nodriver", fake_nodriver)
 
     # Ensure we do not try to resolve or launch a local browser.
-    import spec2_hybrid.runner as runner_mod
+    import gpt_web_driver.runner as runner_mod
 
     def _boom(*args, **kwargs):
         raise AssertionError("resolve_browser_executable_path should not be called when using --cdp-*")
@@ -101,7 +104,7 @@ def test_runner_dry_run_no_display_goes_headless(monkeypatch):
     fake_nodriver = types.SimpleNamespace(start=fake_start)
     monkeypatch.setitem(sys.modules, "nodriver", fake_nodriver)
 
-    import spec2_hybrid.runner as runner_mod
+    import gpt_web_driver.runner as runner_mod
 
     async def _no_thread(func, /, *args, **kwargs):
         return func(*args, **kwargs)

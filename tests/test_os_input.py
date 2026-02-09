@@ -1,6 +1,6 @@
 import random
 
-from spec2_hybrid.os_input import MouseProfile, OsInput, TypingProfile
+from gpt_web_driver.os_input import MouseProfile, OsInput, TypingProfile
 
 
 class FakePyAutoGUI:

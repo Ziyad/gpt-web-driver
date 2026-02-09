@@ -89,9 +89,9 @@ if (-not (Test-Path ".venv\\Scripts\\Activate.ps1")) {
 python -m pip install -U pip
 
 if ($Dev) {
-  python -m pip install -e ".[dev]"
+  python -m pip install -e ".[dev,gui]"
 } else {
-  python -m pip install -e .
+  python -m pip install -e ".[gui]"
 }
 
 Write-Host "Ready. Try: gpt-web-driver demo --dry-run   (or --no-dry-run)" -ForegroundColor Green

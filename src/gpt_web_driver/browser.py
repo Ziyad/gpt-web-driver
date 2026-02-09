@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import json
 import os
 import platform as _platform
@@ -17,9 +18,19 @@ _CFT_LKG_DOWNLOADS_JSON_URL = (
     "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
 )
 
+_LOG = logging.getLogger(__name__)
+
 
 class BrowserNotFoundError(RuntimeError):
     pass
+
+
+def _env_first(env: Mapping[str, str], *keys: str) -> Optional[str]:
+    for k in keys:
+        v = env.get(k)
+        if v is not None:
+            return v
+    return None
 
 
 def default_browser_channel(env: Mapping[str, str] = os.environ) -> str:
@@ -28,7 +39,9 @@ def default_browser_channel(env: Mapping[str, str] = os.environ) -> str:
 
     Values: stable, beta, dev, canary
     """
-    v = (env.get("SPEC2_BROWSER_CHANNEL") or "stable").strip().lower()
+    v = (
+        _env_first(env, "GWD_BROWSER_CHANNEL", "GPT_WEB_DRIVER_BROWSER_CHANNEL") or "stable"
+    ).strip().lower()
     return v or "stable"
 
 
@@ -36,7 +49,7 @@ def default_download_browser(env: Mapping[str, str] = os.environ) -> bool:
     """
     Whether `gpt-web-driver` should auto-download a browser when none is found.
     """
-    override = env.get("SPEC2_BROWSER_DOWNLOAD")
+    override = _env_first(env, "GWD_BROWSER_DOWNLOAD", "GPT_WEB_DRIVER_BROWSER_DOWNLOAD")
     if override is None:
         return True
     return override.strip().lower() in {"1", "true", "yes", "y", "on"}
@@ -68,9 +81,13 @@ def default_browser_sandbox(env: Mapping[str, str] = os.environ) -> bool:
     On WSL, Chrome-for-Testing often requires `--no-sandbox`, so the default is
     disabled there unless overridden.
     """
-    override = env.get("SPEC2_SANDBOX")
-    if override is None:
-        override = env.get("SPEC2_BROWSER_SANDBOX")
+    override = _env_first(
+        env,
+        "GWD_SANDBOX",
+        "GPT_WEB_DRIVER_SANDBOX",
+        "GWD_BROWSER_SANDBOX",
+        "GPT_WEB_DRIVER_BROWSER_SANDBOX",
+    )
 
     if override is not None:
         return override.strip().lower() in {"1", "true", "yes", "y", "on"}
@@ -85,7 +102,7 @@ def default_browser_cache_dir(env: Mapping[str, str] = os.environ) -> Path:
     """
     Base cache dir for browser downloads.
     """
-    override = (env.get("SPEC2_BROWSER_CACHE_DIR") or "").strip()
+    override = (_env_first(env, "GWD_BROWSER_CACHE_DIR", "GPT_WEB_DRIVER_BROWSER_CACHE_DIR") or "").strip()
     if override:
         return Path(override).expanduser()
 
@@ -143,17 +160,88 @@ def _validate_executable_path(path: Path) -> Path:
     return path
 
 
-def _find_system_browser(which: Callable[[str], Optional[str]] = shutil.which) -> Optional[Path]:
+def _find_system_browser(
+    which: Callable[[str], Optional[str]] = shutil.which,
+    *,
+    env: Mapping[str, str] = os.environ,
+    sys_platform: str = sys.platform,
+    home: Path | None = None,
+) -> Optional[Path]:
+    """
+    Best-effort system browser discovery.
+
+    This is intentionally conservative and prefers Chrome/Chromium, but will
+    also consider other Chromium-based browsers if they look like a valid CDP
+    target (e.g., Edge).
+    """
+    home = home or Path.home()
+    sys_platform = sys_platform.lower()
+
+    def _first_existing(paths: list[Path]) -> Optional[Path]:
+        for p in paths:
+            try:
+                if p.exists() and p.is_file():
+                    return p
+            except Exception:
+                continue
+        return None
+
+    def _env_path(*keys: str) -> Optional[Path]:
+        for k in keys:
+            v = (env.get(k) or "").strip()
+            if v:
+                return Path(v)
+        return None
+
+    if sys_platform.startswith("win"):
+        pf = _env_path("PROGRAMFILES", "ProgramFiles")
+        pfx86 = _env_path("PROGRAMFILES(X86)", "ProgramFiles(x86)")
+        local = _env_path("LOCALAPPDATA", "LocalAppData")
+
+        win_candidates: list[Path] = []
+        for root in (pf, pfx86, local):
+            if root is None:
+                continue
+            win_candidates.extend(
+                [
+                    root / "Google" / "Chrome" / "Application" / "chrome.exe",
+                    root / "Chromium" / "Application" / "chrome.exe",
+                    root / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+                    root / "BraveSoftware" / "Brave-Browser" / "Application" / "brave.exe",
+                ]
+            )
+
+        found = _first_existing(win_candidates)
+        if found is not None:
+            return found
+
+    if sys_platform == "darwin":
+        mac_candidates = [
+            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
+            Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+            # Per-user installs.
+            home / "Applications" / "Google Chrome.app" / "Contents" / "MacOS" / "Google Chrome",
+            home / "Applications" / "Chromium.app" / "Contents" / "MacOS" / "Chromium",
+            home / "Applications" / "Microsoft Edge.app" / "Contents" / "MacOS" / "Microsoft Edge",
+        ]
+        found = _first_existing(mac_candidates)
+        if found is not None:
+            return found
+
+    # Fallback to PATH-based discovery (primarily Linux).
     # Prefer Chrome names over Chromium, since nodriver is generally tested against Chrome.
-    candidates = [
+    bin_names = [
         "google-chrome-stable",
         "google-chrome",
         "chromium",
         "chromium-browser",
         "chrome",
-        "Google Chrome",
+        "microsoft-edge",
+        "msedge",
+        "brave-browser",
     ]
-    for name in candidates:
+    for name in bin_names:
         p = which(name)
         if p:
             return Path(p)
@@ -294,7 +382,7 @@ def ensure_chrome_for_testing(
         if installed is not None:
             return installed.executable_path
 
-    print(f"[browser] Resolving Chrome-for-Testing ({channel}/{platform_key})")
+    _LOG.info("Resolving Chrome-for-Testing (%s/%s)", channel, platform_key)
     data = _fetch_json(_CFT_LKG_DOWNLOADS_JSON_URL)
     ch = data["channels"][_cft_channel_key(channel)]
     version = str(ch["version"])
@@ -338,9 +426,9 @@ def ensure_chrome_for_testing(
     try:
         archive = staging / "chrome.zip"
         extract = staging / "extract"
-        print(f"[browser] Downloading {url}")
+        _LOG.info("Downloading %s", url)
         _download_file(url, archive)
-        print("[browser] Extracting...")
+        _LOG.info("Extracting...")
         _safe_extract_zip(archive, extract)
 
         exe = _find_cft_executable(extract, platform_key)
@@ -375,7 +463,7 @@ def ensure_chrome_for_testing(
             + "\n",
             encoding="utf-8",
         )
-        print(f"[browser] Installed: {exe}")
+        _LOG.info("Installed: %s", exe)
         return exe
     finally:
         shutil.rmtree(staging, ignore_errors=True)
@@ -395,7 +483,7 @@ def resolve_browser_executable_path(
 
     Resolution order:
     1) explicit_path (CLI)
-    2) SPEC2_BROWSER_PATH
+    2) GWD_BROWSER_PATH / GPT_WEB_DRIVER_BROWSER_PATH
     3) previously installed Chrome-for-Testing in cache
     4) system browser in PATH
     5) auto-download Chrome-for-Testing (if enabled)
@@ -403,7 +491,7 @@ def resolve_browser_executable_path(
     if explicit_path is not None:
         return _validate_executable_path(explicit_path)
 
-    env_path = (env.get("SPEC2_BROWSER_PATH") or "").strip()
+    env_path = (_env_first(env, "GWD_BROWSER_PATH", "GPT_WEB_DRIVER_BROWSER_PATH") or "").strip()
     if env_path:
         return _validate_executable_path(Path(env_path))
 
@@ -414,15 +502,15 @@ def resolve_browser_executable_path(
     if installed is not None:
         return installed.executable_path
 
-    sys_browser = _find_system_browser(which=which)
+    sys_browser = _find_system_browser(which=which, env=env)
     if sys_browser is not None:
         return sys_browser
 
     if not download:
         raise BrowserNotFoundError(
             "Could not find a Chrome/Chromium browser binary. Either install one on the system, or pass "
-            "`--browser-path /path/to/chrome` (or set SPEC2_BROWSER_PATH). You can also enable auto-download "
-            "with `--download-browser` / SPEC2_BROWSER_DOWNLOAD=1."
+            "`--browser-path /path/to/chrome` (or set GWD_BROWSER_PATH). You can also enable auto-download "
+            "with `--download-browser` / GWD_BROWSER_DOWNLOAD=1."
         )
 
     exe = ensure_chrome_for_testing(

@@ -3,7 +3,7 @@
 Hybrid browser automation that splits the world into:
 
 - **Read (CDP):** use `nodriver` to launch/connect to Chrome and *passively* read DOM state/geometry.
-- **Write (OS):** use **OS-level** input (`pyautogui`) for mouse + keyboard so the page sees trusted input events.
+- **Write (OS):** use **OS-level** input (`pyautogui`, optional extra) for mouse + keyboard so the page sees trusted input events.
 
 This is intentionally "headed" automation. If you are running without a GUI (CI, containers, plain WSL without WSLg), use `--dry-run`.
 
@@ -28,13 +28,13 @@ After navigation, `gpt-web-driver` best-effort disables noisy domains:
 - `Log`
 - `Debugger`
 
-This is intended to reduce overhead and avoid some anti-debugger tricks. The implementation lives in `src/spec2_hybrid/stealth.py`.
+This is intended to reduce overhead and avoid some anti-debugger tricks. The implementation lives in `src/gpt_web_driver/stealth.py`.
 
 ## Requirements
 
 - Python 3.12+ (see `pyproject.toml`)
 - A Chromium-based browser available for `nodriver` to launch (or allow `gpt-web-driver` to auto-download one)
-- A real GUI session if you plan to do OS-level input (`--no-dry-run`)
+- A real GUI session if you plan to do OS-level input (`--no-dry-run`) and the `gui` extra (`pip install "gpt-web-driver[gui]"`)
 
 ## Install
 
@@ -48,7 +48,7 @@ Create a virtualenv and install the package (PowerShell):
 py -3.12 -m venv .venv   # (or 3.13+)
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,gui]"  # include OS-level input deps
 ```
 
 Or use the helper script:
@@ -70,13 +70,15 @@ Create a virtualenv and install the package:
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,gui]"  # include OS-level input deps
 ```
 
 If you only want runtime deps (no tests):
 
 ```bash
-python -m pip install -e .
+python -m pip install -e .       # dry-run only (no OS input deps)
+# or
+python -m pip install -e ".[gui]"  # include OS-level input deps
 ```
 
 ## CLI
@@ -86,7 +88,69 @@ Show help:
 ```bash
 gpt-web-driver --help
 # or
-python -m spec2_hybrid --help
+python -m gpt_web_driver --help
+```
+
+### Diagnostics
+
+Print environment and browser-resolution diagnostics (does not launch a browser by default):
+
+```bash
+gpt-web-driver doctor
+```
+
+If you want `doctor` to also try auto-downloading Chrome for Testing when no browser is found:
+
+```bash
+gpt-web-driver doctor --download-browser
+```
+
+### Machine-Readable Output (JSONL)
+
+For programmatic integration (e.g., Node.js), you can stream structured events on stdout:
+
+```bash
+gpt-web-driver run --url "http://127.0.0.1:6767/index.html" --selector "#fname" --text "Hello" --dry-run --output jsonl
+```
+
+Notes:
+- logs go to stderr (control with `--log-level`)
+- typed text is excluded from JSONL by default; opt-in via `--include-text-in-output`
+
+Typical event types include:
+- `navigate`
+- `interact.point`
+- `os.move_to`
+- `os.click`
+- `os.human_type`
+- `os.press`
+
+Event schema details: `docs/interface.md`.
+
+### Python API
+
+This project is usable as a small library:
+
+```python
+import asyncio
+
+from gpt_web_driver import Driver, RunConfig
+
+
+async def main() -> None:
+    cfg = RunConfig.defaults(
+        url="http://127.0.0.1:6767/index.html",
+        selector="#fname",
+        text="Hello",
+        dry_run=True,
+    )
+
+    async with Driver(cfg) as d:
+        await d.navigate(cfg.url)
+        await d.interact(selector=cfg.selector, text=cfg.text)
+
+
+asyncio.run(main())
 ```
 
 ## Quickstart: Local Deterministic Test Page
@@ -167,18 +231,24 @@ Note: `demo` is meant to be run from a repo checkout (it serves `sample-body.htm
 - `--dry-run`: does not import or call `pyautogui`; prints intended OS actions instead. Use this in containers/CI.
 - `--no-dry-run`: force OS-level input even if auto-detection would default to dry-run.
 
-You can also override the default with `SPEC2_DRY_RUN=1`.
+You can also override the default with `GWD_DRY_RUN=1`.
+
+### Reproducibility / Timing
+
+- `--seed 123`: deterministic noise + OS timing (useful for reproducing a run).
+- `--pre-interact-delay 3`: wait before moving the real mouse/keyboard (gives you time to focus the browser window).
+- `--post-click-delay 1.0`: wait after click and before typing (helps on slower pages).
 
 ### Browser selection / auto-download
 
 If no system Chrome/Chromium is found, `gpt-web-driver` can automatically download **Chrome for Testing**
 into your cache directory and launch it via `nodriver`.
 
-- `--browser-path /path/to/chrome` (or `SPEC2_BROWSER_PATH=/path/to/chrome`): use an explicit browser.
-- `--no-download-browser` (or `SPEC2_BROWSER_DOWNLOAD=0`): disable auto-download.
-- `--browser-channel stable|beta|dev|canary` (or `SPEC2_BROWSER_CHANNEL=...`): choose which channel to download.
-- `--browser-cache-dir /some/dir` (or `SPEC2_BROWSER_CACHE_DIR=...`): override where downloads are stored.
-- `--no-sandbox` (or `SPEC2_SANDBOX=0`): disable the Chrome sandbox (often required on WSL/container environments).
+- `--browser-path /path/to/chrome` (or `GWD_BROWSER_PATH=/path/to/chrome`): use an explicit browser.
+- `--no-download-browser` (or `GWD_BROWSER_DOWNLOAD=0`): disable auto-download.
+- `--browser-channel stable|beta|dev|canary` (or `GWD_BROWSER_CHANNEL=...`): choose which channel to download.
+- `--browser-cache-dir /some/dir` (or `GWD_BROWSER_CACHE_DIR=...`): override where downloads are stored.
+- `--no-sandbox` (or `GWD_SANDBOX=0`): disable the Chrome sandbox (often required on WSL/container environments).
 
 ### Calibration
 
@@ -235,11 +305,12 @@ sudo apt update
 sudo apt install -y python3-tk python3-dev scrot
 ```
 
-If you do not have a GUI in WSL, stick to `--dry-run` (and/or set `SPEC2_DRY_RUN=1`) so your flow can still be exercised without moving the real mouse/keyboard.
+If you do not have a GUI in WSL, stick to `--dry-run` (and/or set `GWD_DRY_RUN=1`) so your flow can still be exercised without moving the real mouse/keyboard.
 
 ## Troubleshooting
 
 - `No module named pytest`: install dev deps: `python -m pip install -e ".[dev]"`.
+- `pyautogui` missing: install OS input deps: `python -m pip install -e ".[gui]"`.
 - `pyautogui` fails to import / complains about display: run with `--dry-run` or ensure you have a GUI session.
 - Clicks land in the wrong place: tune `--offset-x/--offset-y` and consider maximizing the window.
 - `could not find a valid chrome browser binary`: either install Chrome/Chromium, pass `--browser-path`, or allow auto-download (default).

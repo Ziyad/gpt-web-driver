@@ -1,2 +1,2 @@
 nodriver
-pyautogui
+pyautogui  # optional: required for OS-level input (non-dry-run)

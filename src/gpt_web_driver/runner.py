@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import random
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional, Self
 
 from .browser import resolve_browser_executable_path
 from .demo_server import serve_directory
@@ -42,6 +43,14 @@ def _no_gui_display(env: Mapping[str, str] = os.environ, *, sys_platform: str = 
     return False
 
 
+def _env_first(env: Mapping[str, str], *keys: str) -> Optional[str]:
+    for k in keys:
+        v = env.get(k)
+        if v is not None:
+            return v
+    return None
+
+
 @dataclass(frozen=True)
 class RunConfig:
     url: str
@@ -64,16 +73,94 @@ class RunConfig:
     typing: TypingProfile
     real_profile: Optional[Path]
     shim_profile: Optional[Path]
+    seed: Optional[int]
+    pre_interact_delay_s: float
+    post_click_delay_s: float
+
+    @classmethod
+    def defaults(
+        cls,
+        *,
+        url: str,
+        selector: str = "#prompt-textarea",
+        text: str | None = "Hello, this is a test prompt.",
+        press_enter: bool = True,
+        dry_run: bool | None = None,
+        timeout_s: float = 20.0,
+        browser_path: Path | None = None,
+        browser_channel: str | None = None,
+        download_browser: bool | None = None,
+        sandbox: bool | None = None,
+        browser_cache_dir: Path | None = None,
+        cdp_host: str | None = None,
+        cdp_port: int | None = None,
+        offset_x: float = 0.0,
+        offset_y: float = 80.0,
+        noise: Noise | None = None,
+        mouse: MouseProfile | None = None,
+        typing: TypingProfile | None = None,
+        real_profile: Path | None = None,
+        shim_profile: Path | None = None,
+        seed: int | None = None,
+        pre_interact_delay_s: float = 0.0,
+        post_click_delay_s: float = 0.5,
+    ) -> Self:
+        """
+        Create a RunConfig with CLI-like defaults.
+        """
+        from .browser import default_browser_channel, default_browser_sandbox, default_download_browser
+
+        return cls(
+            url=str(url),
+            selector=str(selector),
+            text=(str(text) if text is not None else None),
+            press_enter=bool(press_enter),
+            dry_run=default_dry_run() if dry_run is None else bool(dry_run),
+            timeout_s=float(timeout_s),
+            browser_path=browser_path,
+            browser_channel=str(browser_channel or default_browser_channel()),
+            download_browser=default_download_browser() if download_browser is None else bool(download_browser),
+            sandbox=default_browser_sandbox() if sandbox is None else bool(sandbox),
+            browser_cache_dir=browser_cache_dir,
+            cdp_host=(str(cdp_host) if cdp_host else None),
+            cdp_port=(int(cdp_port) if cdp_port is not None else None),
+            offset_x=float(offset_x),
+            offset_y=float(offset_y),
+            noise=noise or Noise(x_px=12, y_px=5),
+            mouse=mouse or MouseProfile(min_move_duration_s=0.2, max_move_duration_s=0.6),
+            typing=typing or TypingProfile(min_delay_s=0.05, max_delay_s=0.15),
+            real_profile=real_profile,
+            shim_profile=shim_profile,
+            seed=(int(seed) if seed is not None else None),
+            pre_interact_delay_s=float(pre_interact_delay_s),
+            post_click_delay_s=float(post_click_delay_s),
+        )
 
 
 class FlowRunner:
-    def __init__(self, config: RunConfig) -> None:
+    def __init__(
+        self,
+        config: RunConfig,
+        *,
+        emit: Callable[[dict[str, Any]], None] | None = None,
+        include_text_in_events: bool = False,
+    ) -> None:
         self._cfg = config
+        self._emit = emit
+        self._include_text_in_events = bool(include_text_in_events)
         self._browser: Any = None
         self._page: Any = None
         # Lazily created to avoid importing pyautogui in environments without a GUI
         # (especially when we will fail fast before interaction).
         self._os: Optional[OsInput] = None
+        self._noise_rng: random.Random | None = None
+        self._os_rng: random.Random | None = None
+        if self._cfg.seed is not None:
+            # Use split RNGs so noise and OS timing remain deterministic but do not
+            # influence each other based on call ordering.
+            base = int(self._cfg.seed)
+            self._noise_rng = random.Random(base ^ 0xC0FFEE)
+            self._os_rng = random.Random(base ^ 0xBAD5EED)
 
     async def __aenter__(self) -> "FlowRunner":
         await self.start()
@@ -185,6 +272,8 @@ class FlowRunner:
 
     async def navigate(self, url: str) -> Any:
         assert self._browser is not None
+        if self._emit is not None:
+            self._emit({"event": "navigate", "url": str(url)})
         self._page = await self._browser.get(url)
         await stealth_init(self._page)
         return self._page
@@ -211,18 +300,39 @@ class FlowRunner:
     async def interact(self, *, selector: str, text: Optional[str]) -> None:
         assert self._browser is not None
         if self._os is None:
-            self._os = OsInput(dry_run=self._cfg.dry_run)
+            self._os = OsInput(
+                dry_run=self._cfg.dry_run,
+                rng=self._os_rng,
+                emit=self._emit,
+                include_text_in_events=self._include_text_in_events,
+            )
 
         pt = await self.locate_point(selector)
         sx, sy = viewport_to_screen(pt.x, pt.y, offset_x=self._cfg.offset_x, offset_y=self._cfg.offset_y)
-        fx, fy = apply_noise(sx, sy, noise=self._cfg.noise)
+        fx, fy = apply_noise(sx, sy, noise=self._cfg.noise, rng=self._noise_rng)
+        if self._emit is not None:
+            self._emit(
+                {
+                    "event": "interact.point",
+                    "selector": str(selector),
+                    "viewport_x": float(pt.x),
+                    "viewport_y": float(pt.y),
+                    "screen_x": float(sx),
+                    "screen_y": float(sy),
+                    "final_x": float(fx),
+                    "final_y": float(fy),
+                }
+            )
 
         await maybe_bring_to_front(self._browser)
+        if self._cfg.pre_interact_delay_s > 0:
+            await asyncio.sleep(self._cfg.pre_interact_delay_s)
         self._os.move_to(fx, fy, profile=self._cfg.mouse)
         self._os.click()
 
         if text:
-            await asyncio.sleep(0.5)
+            if self._cfg.post_click_delay_s > 0:
+                await asyncio.sleep(self._cfg.post_click_delay_s)
             await self._os.human_type(text, profile=self._cfg.typing)
             if self._cfg.press_enter:
                 self._os.press("enter")
@@ -235,7 +345,7 @@ def default_dry_run() -> bool:
     - Linux: if neither X11 nor Wayland display env vars are set, assume no GUI.
     - macOS/Windows: do not key off DISPLAY (often unset even in GUI sessions).
     """
-    override = os.environ.get("SPEC2_DRY_RUN")
+    override = _env_first(os.environ, "GWD_DRY_RUN", "GPT_WEB_DRIVER_DRY_RUN")
     if override is not None:
         return override.strip().lower() in {"1", "true", "yes", "y", "on"}
 
@@ -246,17 +356,28 @@ def default_dry_run() -> bool:
     return False
 
 
-async def run_single(config: RunConfig) -> None:
-    async with FlowRunner(config) as runner:
+async def run_single(
+    config: RunConfig,
+    *,
+    emit: Callable[[dict[str, Any]], None] | None = None,
+    include_text_in_events: bool = False,
+) -> None:
+    async with FlowRunner(config, emit=emit, include_text_in_events=include_text_in_events) as runner:
         await runner.navigate(config.url)
         await runner.interact(selector=config.selector, text=config.text)
 
 
-async def run_demo(config: RunConfig, *, repo_root: Path) -> None:
+async def run_demo(
+    config: RunConfig,
+    *,
+    repo_root: Path,
+    emit: Callable[[dict[str, Any]], None] | None = None,
+    include_text_in_events: bool = False,
+) -> None:
     server = serve_directory(repo_root)
     try:
         url = f"{server.base_url}/sample-body.html"
-        async with FlowRunner(config) as runner:
+        async with FlowRunner(config, emit=emit, include_text_in_events=include_text_in_events) as runner:
             await runner.navigate(url)
             await runner.interact(selector=config.selector, text=config.text)
             # Show multi-step behavior in a single session by re-running an action.

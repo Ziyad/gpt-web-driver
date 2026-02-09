@@ -4,7 +4,7 @@ import argparse
 import time
 from pathlib import Path
 
-from spec2_hybrid.demo_server import serve_directory
+from gpt_web_driver.demo_server import serve_directory
 
 
 def main() -> int:

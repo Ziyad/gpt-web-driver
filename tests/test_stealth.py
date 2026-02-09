@@ -1,6 +1,6 @@
 import types
 
-from spec2_hybrid.stealth import stealth_init
+from gpt_web_driver.stealth import stealth_init
 
 
 class FakePage:
