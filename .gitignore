@@ -13,3 +13,6 @@ venv/
 # Build output
 build/
 dist/
+
+
+.swarm/
