@@ -133,7 +133,7 @@ curl -X POST http://127.0.0.1:8000/v1/system/resume
 For programmatic integration (e.g., Node.js), you can stream structured events on stdout:
 
 ```bash
-gpt-web-driver run --url "http://127.0.0.1:6767/index.html" --selector "#fname" --text "Hello" --dry-run --output jsonl
+gpt-web-driver run --url "http://127.0.0.1:6767/index.html" --selector "#prompt-textarea" --text "Hello" --dry-run --output jsonl
 ```
 
 Notes:
@@ -165,10 +165,9 @@ Example `flow.json`:
   "vars": { "input_text": "Hello" },
   "steps": [
     { "action": "navigate", "url": "http://127.0.0.1:6767/index.html" },
-    { "action": "type", "selector": "#fname", "text": "{{input_text}}", "click_first": true },
-    { "action": "click", "selector": "#submit" },
-    { "action": "wait_for_text", "within": "#results", "selector": ".status", "contains": "Done", "timeout_s": 30 },
-    { "action": "extract_text", "selector": "#final-answer", "into": "result" }
+    { "action": "type", "selector": "#prompt-textarea", "text": "{{input_text}}", "click_first": true },
+    { "action": "wait_for_text", "within": "#chat-messages", "selector": "[data-message-author-role='assistant']", "contains": "demo", "timeout_s": 30 },
+    { "action": "extract_text", "selector": "[data-message-author-role='assistant'] .whitespace-pre-wrap", "into": "result" }
   ],
   "result": "{{result}}"
 }
@@ -191,7 +190,7 @@ from gpt_web_driver import Driver, RunConfig
 async def main() -> None:
     cfg = RunConfig.defaults(
         url="http://127.0.0.1:6767/index.html",
-        selector="#fname",
+        selector="#prompt-textarea",
         text="Hello",
         dry_run=True,
     )
@@ -206,7 +205,7 @@ asyncio.run(main())
 
 ## Quickstart: Local Deterministic Test Page
 
-This repo includes a tiny local test app (`webapp/`) with a stable input field `#fname`.
+This repo includes a local chat demo app (`webapp/`) styled like a conventional LLM chat UI, with a `#prompt-textarea` input and dummy assistant responses.
 
 Terminal 1 (serve the page; fixed port makes commands repeatable):
 
@@ -217,13 +216,13 @@ Terminal 1 (serve the page; fixed port makes commands repeatable):
 Terminal 2 (real OS input):
 
 ```powershell
-gpt-web-driver run --url "http://127.0.0.1:6767/index.html" --selector "#fname" --text "Hello" --no-dry-run
+gpt-web-driver run --url "http://127.0.0.1:6767/index.html" --selector "#prompt-textarea" --text "Hello" --no-dry-run
 ```
 
 Dry-run (safe; prints intended actions without moving the mouse):
 
 ```powershell
-gpt-web-driver run --url "http://127.0.0.1:6767/index.html" --selector "#fname" --text "Hello" --dry-run
+gpt-web-driver run --url "http://127.0.0.1:6767/index.html" --selector "#prompt-textarea" --text "Hello" --dry-run
 ```
 
 ## Example: Extract Chat Messages (Read-Only)
@@ -357,6 +356,36 @@ Run:
 ```bash
 python -m pytest
 ```
+
+### E2E / Browser Tests
+
+The test suite includes browser-based end-to-end tests that validate the chat
+webapp's DOM contract and the full API-to-browser round-trip. These tests use
+Playwright and require a Chromium binary.
+
+E2E tests are marked with `@pytest.mark.e2e` and **excluded by default** via
+`addopts = "-m 'not e2e'"` in `pyproject.toml`, so `python -m pytest` always
+passes cleanly without optional dependencies.
+
+**Prerequisites:**
+
+```bash
+pip install -e ".[e2e]"       # installs playwright, fastapi, httpx
+playwright install chromium   # download browser binary
+# Or point to an existing binary:
+#   export GWD_TEST_CHROMIUM_PATH=/path/to/chrome
+```
+
+**Running E2E tests explicitly:**
+
+```bash
+python -m pytest -m e2e -v                   # only E2E tests
+python -m pytest -m '' -v                    # all tests (unit + E2E)
+python -m pytest tests/test_chat_webapp_e2e.py -m e2e -v  # file-specific
+```
+
+When Playwright or Chromium is not available, individual E2E tests skip with a
+clear reason message so CI logs always show *why* coverage was dropped.
 
 ## macOS notes
 

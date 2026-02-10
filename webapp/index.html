@@ -3,68 +3,53 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>gpt-web-driver test page</title>
+    <title>gpt-web-driver chat</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <div class="app">
       <header class="topbar">
         <div class="brand">gpt-web-driver</div>
-        <div class="hint">
-          Target selector:
-          <code>#fname</code>
-          or
-          <code>#test-input</code>
-        </div>
+        <div class="model-label">Demo Chat</div>
       </header>
 
-      <main class="card">
-        <h1>Automation Test Form</h1>
-        <p class="sub">
-          This page is designed to be stable and easy to target with browser automation.
-        </p>
+      <noscript>
+        <p style="color:#fff;padding:20px;">JavaScript is required for the chat interface.</p>
+      </noscript>
 
-        <form id="form">
-          <label for="fname">First name</label>
-          <!-- Keep id=fname so your existing command works -->
-          <input
-            id="fname"
-            name="fname"
-            type="text"
-            inputmode="text"
+      <main
+        id="chat-messages"
+        class="chat-messages"
+        role="log"
+        aria-label="Chat messages"
+        aria-live="polite"
+        data-testid="chat-messages"
+      ></main>
+
+      <footer class="input-bar">
+        <div class="input-wrap" id="chat-form">
+          <label for="prompt-textarea" class="sr-only">Type your message</label>
+          <textarea
+            id="prompt-textarea"
+            placeholder="Message gpt-web-driver..."
+            rows="1"
             autocomplete="off"
             spellcheck="false"
-            placeholder="Type here..."
-            autofocus
-            data-testid="test-input"
-          />
-
-          <div class="row">
-            <button id="submit" type="submit">Submit</button>
-            <button id="clear" type="button">Clear</button>
-          </div>
-        </form>
-
-        <section class="status">
-          <div class="status-row">
-            <div class="k">Focused:</div>
-            <div class="v" id="focused">no</div>
-          </div>
-          <div class="status-row">
-            <div class="k">Value:</div>
-            <div class="v mono" id="value">(empty)</div>
-          </div>
-          <div class="status-row">
-            <div class="k">Submitted:</div>
-            <div class="v mono" id="submitted">(none)</div>
-          </div>
-        </section>
-      </main>
-
-      <footer class="footer">
-        <div>
-          Tip: if clicks land wrong, tune <code>--offset-x</code>/<code>--offset-y</code>.
+            aria-label="Type your message"
+            data-testid="prompt-textarea"
+          ></textarea>
+          <button
+            id="send-btn"
+            type="button"
+            aria-label="Send message"
+            data-testid="send-btn"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M3 10L17 3L10 17L9 11L3 10Z" fill="currentColor"/>
+            </svg>
+          </button>
         </div>
+        <div class="input-hint">Press Enter to send, Shift+Enter for new line</div>
       </footer>
     </div>
 

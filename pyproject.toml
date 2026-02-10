@@ -34,6 +34,13 @@ dev = [
   "ruff",
   "mypy",
 ]
+e2e = [
+  "pytest",
+  "playwright",
+  "fastapi",
+  "uvicorn",
+  "httpx",
+]
 
 [project.scripts]
 gpt-web-driver = "gpt_web_driver.cli:main"
@@ -45,5 +52,8 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.pytest.ini_options]
-addopts = "-q"
+addopts = "-q -m 'not e2e'"
 testpaths = ["tests"]
+markers = [
+  "e2e: end-to-end browser tests requiring Playwright + Chromium",
+]
