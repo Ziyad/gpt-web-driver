@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Self
 
 from .browser import resolve_browser_executable_path
+from .core.env import _env_first
 from .demo_server import serve_directory
 from .geometry import Noise, apply_noise, viewport_to_screen
 from .nodriver_dom import (
@@ -41,13 +42,6 @@ def _no_gui_display(env: Mapping[str, str] = os.environ, *, sys_platform: str = 
 
     return False
 
-
-def _env_first(env: Mapping[str, str], *keys: str) -> Optional[str]:
-    for k in keys:
-        v = env.get(k)
-        if v is not None:
-            return v
-    return None
 
 
 @dataclass(frozen=True)

@@ -16,6 +16,8 @@ from typing import Callable, Mapping, Optional
 
 from platformdirs import user_cache_dir
 
+from .core.env import _env_first
+
 _CFT_LKG_DOWNLOADS_JSON_URL = (
     "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
 )
@@ -25,14 +27,6 @@ _LOG = logging.getLogger(__name__)
 
 class BrowserNotFoundError(RuntimeError):
     pass
-
-
-def _env_first(env: Mapping[str, str], *keys: str) -> Optional[str]:
-    for k in keys:
-        v = env.get(k)
-        if v is not None:
-            return v
-    return None
 
 
 def default_browser_channel(env: Mapping[str, str] = os.environ) -> str:

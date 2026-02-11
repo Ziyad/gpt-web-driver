@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import re
 import random
 from dataclasses import dataclass
@@ -9,6 +10,8 @@ from html.parser import HTMLParser
 from typing import Any
 
 from .geometry import quad_center, rect_center
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -126,6 +129,107 @@ async def _dom_query_selector_int_dict(page: Any, root_node_id: int, selector: s
     return _node_id_from(resp)
 
 
+async def _send_dict(page: Any, method: str, params: dict[str, Any] | None = None) -> Any:
+    """Send a raw dict-based CDP message via ``page.send``."""
+    # Some dict-CDP shims expect a "params" key even when it's empty.
+    msg: dict[str, Any] = {"method": str(method), "params": params or {}}
+    return await page.send(msg)
+
+
+async def _get_box_model_and_viewport_offset(
+    page: Any, node_id: Any, selector: str
+) -> tuple[list[float], float, float]:
+    """Shared pipeline: get box-model quad and visual-viewport offset for *node_id*.
+
+    Returns ``(quad_floats, page_x, page_y)`` where *page_x*/*page_y* are the
+    visual viewport origin (for converting page coords to viewport coords).
+    """
+    uc = None
+    try:
+        import nodriver as uc  # type: ignore[assignment]
+    except Exception:
+        _LOG.debug("nodriver import failed in _get_box_model_and_viewport_offset", exc_info=True)
+        uc = None
+
+    # --- box model ---
+    bm: Any = None
+    nodriver_exc: Exception | None = None
+    if uc is not None:
+        fn = getattr(getattr(getattr(uc, "cdp", None), "dom", None), "get_box_model", None)
+        if callable(fn):
+            try:
+                bm = await page.send(fn(node_id))
+            except TypeError:
+                try:
+                    bm = await page.send(fn(node_id=node_id))
+                except Exception as e:
+                    nodriver_exc = e
+                    bm = None
+            except Exception as e:
+                nodriver_exc = e
+                bm = None
+
+    if bm is None:
+        try:
+            bm = await _send_dict(page, "DOM.getBoxModel", {"nodeId": int(node_id)})
+        except Exception:
+            if nodriver_exc is not None:
+                raise nodriver_exc
+            raise
+
+    # --- extract quad ---
+    quad: Any = None
+    if isinstance(bm, dict):
+        model = (bm.get("model") or {}) if isinstance(bm.get("model"), dict) else {}
+        quad = model.get("content") or model.get("border") or model.get("margin")
+    else:
+        for name in ("content", "border", "margin"):
+            if hasattr(bm, name):
+                quad = getattr(bm, name)
+                if quad:
+                    break
+
+    if not quad:
+        raise RuntimeError(f"DOM.getBoxModel returned no quad for selector: {selector}")
+
+    quad_f = [float(v) for v in quad]
+
+    # --- layout metrics (viewport offset) ---
+    page_x = 0.0
+    page_y = 0.0
+    try:
+        metrics: Any = None
+        if uc is not None:
+            try:
+                p = getattr(getattr(uc, "cdp", None), "page", None)
+                fnm = getattr(p, "get_layout_metrics", None) if p is not None else None
+                if callable(fnm):
+                    metrics = await page.send(fnm())
+            except Exception:
+                _LOG.debug("nodriver layout-metrics failed, falling back to dict CDP", exc_info=True)
+                metrics = None
+
+        if metrics is None:
+            metrics = await _send_dict(page, "Page.getLayoutMetrics")
+
+        vv: Any = {}
+        if isinstance(metrics, tuple) and len(metrics) >= 2:
+            vv = metrics[1]
+        elif isinstance(metrics, dict):
+            vv = metrics.get("visualViewport") or {}
+
+        if isinstance(vv, dict):
+            page_x = float(vv.get("pageX") or 0.0)
+            page_y = float(vv.get("pageY") or 0.0)
+        else:
+            page_x = float(getattr(vv, "page_x", 0.0) or 0.0)
+            page_y = float(getattr(vv, "page_y", 0.0) or 0.0)
+    except Exception:
+        _LOG.debug("layout-metrics unavailable, assuming zero viewport offset", exc_info=True)
+
+    return quad_f, page_x, page_y
+
+
 async def selector_viewport_center(page: Any, selector: str, *, within_selector: str | None = None) -> ViewportPoint:
     """
     DOM-only fallback for getting an element's viewport center.
@@ -144,103 +248,10 @@ async def selector_viewport_center(page: Any, selector: str, *, within_selector:
             )
         raise RuntimeError(f"DOM.querySelector returned no nodeId for selector: {selector}")
 
-    # Prefer nodriver's generated CDP commands if available (page.send usually expects these).
-    uc = None
-    try:
-        import nodriver as uc  # type: ignore[assignment]
-    except Exception:
-        uc = None
-
-    def _maybe_dict(obj: Any) -> dict:
-        return obj if isinstance(obj, dict) else {}
-
-    async def _send_dict(method: str, params: dict[str, Any] | None = None) -> Any:
-        msg: dict[str, Any] = {"method": method}
-        if params:
-            msg["params"] = params
-        return await page.send(msg)
-
-    bm: Any
-    nodriver_exc: Exception | None = None
-    if uc is not None:
-        fn = getattr(getattr(uc, "cdp", None), "dom", None)
-        fn = getattr(fn, "get_box_model", None) if fn is not None else None
-        if callable(fn):
-            try:
-                bm = await page.send(fn(node_id))  # prefer NodeId (has to_json)
-            except TypeError:
-                bm = await page.send(fn(node_id=node_id))
-            except Exception as e:
-                # Could be a non-nodriver page.send() implementation. Fall back to dict CDP.
-                nodriver_exc = e
-                bm = None
-        else:
-            bm = None
-    else:
-        bm = None
-
-    if bm is None:
-        try:
-            bm = await _send_dict("DOM.getBoxModel", {"nodeId": int(node_id)})
-        except Exception:
-            # If this is a real nodriver Tab, dict CDP won't work; surface the original error.
-            if nodriver_exc is not None:
-                raise nodriver_exc
-            raise
-
-    quad: Any = None
-    if isinstance(bm, dict):
-        model = (bm.get("model") or {}) if isinstance(bm.get("model"), dict) else {}
-        quad = model.get("content") or model.get("border") or model.get("margin")
-    else:
-        # nodriver returns a BoxModel dataclass with Quad(list) members.
-        for name in ("content", "border", "margin"):
-            if hasattr(bm, name):
-                quad = getattr(bm, name)
-                if quad:
-                    break
-
-    if not quad:
-        raise RuntimeError(f"DOM.getBoxModel returned no quad for selector: {selector}")
-
-    quad_f = [float(v) for v in quad]
+    quad_f, page_x, page_y = await _get_box_model_and_viewport_offset(page, node_id, selector)
     cx, cy = _quad_center_xy(quad_f)
-
-    # DOM.getBoxModel coordinates are in page coordinates; convert to viewport coordinates
-    # by subtracting the visual viewport origin when available.
-    try:
-        metrics: Any = None
-        if uc is not None:
-            try:
-                p = getattr(getattr(uc, "cdp", None), "page", None)
-                fnm = getattr(p, "get_layout_metrics", None) if p is not None else None
-                if callable(fnm):
-                    metrics = await page.send(fnm())
-            except Exception:
-                metrics = None
-
-        if metrics is None:
-            metrics = await _send_dict("Page.getLayoutMetrics")
-
-        # nodriver returns a 6-tuple; dict-based CDP stacks return a dict.
-        vv: Any = {}
-        if isinstance(metrics, tuple) and len(metrics) >= 2:
-            vv = metrics[1]
-        elif isinstance(metrics, dict):
-            vv = metrics.get("visualViewport") or {}
-
-        page_x = 0.0
-        page_y = 0.0
-        if isinstance(vv, dict):
-            page_x = float(vv.get("pageX") or 0.0)
-            page_y = float(vv.get("pageY") or 0.0)
-        else:
-            page_x = float(getattr(vv, "page_x", 0.0) or 0.0)
-            page_y = float(getattr(vv, "page_y", 0.0) or 0.0)
-        cx -= page_x
-        cy -= page_y
-    except Exception:
-        pass
+    cx -= page_x
+    cy -= page_y
     return ViewportPoint(cx, cy)
 
 
@@ -261,88 +272,7 @@ async def selector_viewport_quad(page: Any, selector: str, *, within_selector: s
             )
         raise RuntimeError(f"DOM.querySelector returned no nodeId for selector: {selector}")
 
-    uc = None
-    try:
-        import nodriver as uc  # type: ignore[assignment]
-    except Exception:
-        uc = None
-
-    async def _send_dict(method: str, params: dict[str, Any] | None = None) -> Any:
-        msg: dict[str, Any] = {"method": method}
-        if params:
-            msg["params"] = params
-        return await page.send(msg)
-
-    bm: Any = None
-    nodriver_exc: Exception | None = None
-    if uc is not None:
-        try:
-            fn = getattr(getattr(getattr(uc, "cdp", None), "dom", None), "get_box_model", None)
-            if callable(fn):
-                try:
-                    bm = await page.send(fn(node_id))
-                except TypeError:
-                    bm = await page.send(fn(node_id=node_id))
-        except Exception as e:
-            nodriver_exc = e
-            bm = None
-
-    if bm is None:
-        try:
-            bm = await _send_dict("DOM.getBoxModel", {"nodeId": int(node_id)})
-        except Exception:
-            if nodriver_exc is not None:
-                raise nodriver_exc
-            raise
-
-    quad: Any = None
-    if isinstance(bm, dict):
-        model = (bm.get("model") or {}) if isinstance(bm.get("model"), dict) else {}
-        quad = model.get("content") or model.get("border") or model.get("margin")
-    else:
-        for name in ("content", "border", "margin"):
-            if hasattr(bm, name):
-                quad = getattr(bm, name)
-                if quad:
-                    break
-
-    if not quad:
-        raise RuntimeError(f"DOM.getBoxModel returned no quad for selector: {selector}")
-
-    quad_f = [float(v) for v in quad]
-
-    # Convert page coords -> viewport coords by subtracting visual viewport origin.
-    page_x = 0.0
-    page_y = 0.0
-    try:
-        metrics: Any = None
-        if uc is not None:
-            try:
-                p = getattr(getattr(uc, "cdp", None), "page", None)
-                fnm = getattr(p, "get_layout_metrics", None) if p is not None else None
-                if callable(fnm):
-                    metrics = await page.send(fnm())
-            except Exception:
-                metrics = None
-
-        if metrics is None:
-            metrics = await _send_dict("Page.getLayoutMetrics")
-
-        vv: Any = {}
-        if isinstance(metrics, tuple) and len(metrics) >= 2:
-            vv = metrics[1]
-        elif isinstance(metrics, dict):
-            vv = metrics.get("visualViewport") or {}
-
-        if isinstance(vv, dict):
-            page_x = float(vv.get("pageX") or 0.0)
-            page_y = float(vv.get("pageY") or 0.0)
-        else:
-            page_x = float(getattr(vv, "page_x", 0.0) or 0.0)
-            page_y = float(getattr(vv, "page_y", 0.0) or 0.0)
-    except Exception:
-        page_x = 0.0
-        page_y = 0.0
+    quad_f, page_x, page_y = await _get_box_model_and_viewport_offset(page, node_id, selector)
 
     if page_x or page_y:
         for i in range(0, len(quad_f), 2):
@@ -407,6 +337,7 @@ async def dom_query_selector_node_id(page: Any, selector: str, *, within_selecto
     try:
         import nodriver as uc  # type: ignore[assignment]
     except Exception:
+        _LOG.debug("nodriver import failed in dom_query_selector_node_id", exc_info=True)
         uc = None
 
     if uc is not None:
@@ -426,7 +357,7 @@ async def dom_query_selector_node_id(page: Any, selector: str, *, within_selecto
             return q_resp if q_resp else 0
         except Exception:
             # If this is not a real nodriver Tab (e.g., unit test fake), fall back to dict CDP.
-            pass
+            _LOG.debug("nodriver querySelector failed, falling back to dict CDP", exc_info=True)
 
     # Generic CDP fallback (for test fakes or other drivers that accept dict messages).
     root_id = await _dom_get_root_node_id_int_dict(page)
@@ -473,8 +404,10 @@ async def wait_for_selector(
                 _ = await _dom_get_root_node_id_obj_nodriver(page, uc)
                 use_nodriver = True
             except Exception:
+                _LOG.debug("nodriver probe failed in wait_for_selector, using dict CDP", exc_info=True)
                 use_nodriver = False
         except Exception:
+            _LOG.debug("nodriver import failed in wait_for_selector", exc_info=True)
             uc = None
             use_nodriver = False
 
@@ -561,13 +494,8 @@ async def dom_get_outer_html(page: Any, node_id: int) -> str:
     try:
         import nodriver as uc  # type: ignore[assignment]
     except Exception:
+        _LOG.debug("nodriver import failed in dom_get_outer_html", exc_info=True)
         uc = None
-
-    async def _send_dict(method: str, params: dict[str, Any] | None = None) -> Any:
-        msg: dict[str, Any] = {"method": method}
-        if params:
-            msg["params"] = params
-        return await page.send(msg)
 
     resp: Any = None
     nodriver_exc: Exception | None = None
@@ -585,7 +513,7 @@ async def dom_get_outer_html(page: Any, node_id: int) -> str:
 
     if resp is None:
         try:
-            resp = await _send_dict("DOM.getOuterHTML", {"nodeId": int(node_id)})
+            resp = await _send_dict(page, "DOM.getOuterHTML", {"nodeId": int(node_id)})
         except Exception:
             if nodriver_exc is not None:
                 raise nodriver_exc
@@ -622,11 +550,11 @@ def html_to_text(html: str) -> str:
             try:
                 tag.decompose()
             except Exception:
-                pass
+                _LOG.debug("tag.decompose() failed", exc_info=True)
         txt = soup.get_text(" ", strip=True)
         return str(txt or "").strip()
     except Exception:
-        pass
+        _LOG.debug("BeautifulSoup html_to_text failed, falling back to HTMLParser", exc_info=True)
 
     class _Extractor(HTMLParser):
         def __init__(self) -> None:
@@ -703,7 +631,7 @@ async def element_viewport_center(element: Any) -> ViewportPoint:
                 return ViewportPoint(cx, cy)
         except Exception:
             # If bounding box retrieval is unsupported for this element/driver, fall back to quads.
-            pass
+            _LOG.debug("bounding_box retrieval failed, falling back to quads", exc_info=True)
 
     # Fall back to quads if present.
     quads = None
@@ -744,6 +672,7 @@ async def maybe_maximize(browser: Any) -> None:
             if inspect.isawaitable(res):
                 await res
     except Exception:
+        _LOG.debug("maybe_maximize failed", exc_info=True)
         return
 
 
@@ -764,4 +693,5 @@ async def maybe_bring_to_front(browser: Any) -> None:
                 if inspect.isawaitable(res):
                     await res
     except Exception:
+        _LOG.debug("maybe_bring_to_front failed", exc_info=True)
         return

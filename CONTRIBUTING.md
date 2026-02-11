@@ -43,6 +43,26 @@ python -m ruff check .
 python -m ruff format .
 ```
 
+## Architectural Constraints
+
+This project enforces a strict **read-only doctrine**: the browser DOM is
+observed exclusively through CDP (Chrome DevTools Protocol) commands such as
+`DOM.getDocument`, `DOM.querySelector`, and `DOM.getBoxModel`.  The following
+patterns are **forbidden** in library code under `src/gpt_web_driver/`:
+
+- `Runtime.evaluate` / `page.evaluate` -- no JavaScript execution in the page
+  context.
+- `page.click` / `send_keys` -- no driver-level synthetic input; all input
+  flows through OS-level APIs (`pyautogui`).
+
+These constraints are enforced automatically by
+`tests/test_read_only_doctrine.py`, which scans the source tree for forbidden
+strings.  Any pull request that introduces a forbidden pattern will fail CI.
+
+**Why?**  The read-only doctrine keeps the browser session indistinguishable
+from a human operator: passive DOM reads via CDP leave no detectable
+JavaScript side-effects, and OS-level input produces real hardware events.
+
 ## Project Structure
 
 - `src/gpt_web_driver/`: library + CLI implementation

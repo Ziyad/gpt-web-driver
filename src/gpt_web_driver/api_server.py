@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any
+
+_LOG = logging.getLogger(__name__)
 
 
 def _now_epoch() -> int:
@@ -97,8 +100,10 @@ def create_app(*, session, default_model: str = "gpt-web-driver") -> Any:
             text = await session.chat_completion(prompt)
         except HTTPException:
             raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e)) from e
+        except Exception:
+            error_id = uuid.uuid4().hex[:12]
+            _LOG.exception("chat_completion failed (error_id=%s)", error_id)
+            raise HTTPException(status_code=500, detail={"error": "internal_error", "error_id": error_id})
 
         created = _now_epoch()
         rid = f"chatcmpl_{uuid.uuid4().hex[:24]}"

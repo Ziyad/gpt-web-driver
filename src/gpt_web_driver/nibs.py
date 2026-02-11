@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import random
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as _dc_replace
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -111,8 +111,8 @@ class NibsSession:
         else:
             shim.mkdir(parents=True, exist_ok=True)
 
-        # Inject shim_profile into the runner config (frozen dataclass: rebuild).
-        run_cfg = run_cfg.__class__(**{**run_cfg.__dict__, "shim_profile": shim})
+        # Inject shim_profile into the runner config (frozen dataclass).
+        run_cfg = _dc_replace(run_cfg, shim_profile=shim)
 
         r = FlowRunner(run_cfg, emit=self._emit)
         await r.start()
